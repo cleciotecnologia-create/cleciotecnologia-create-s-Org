@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and role information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "CONDO_ADMIN", "RESIDENT"] },
+        "condoId": { "type": "string" },
+        "avatarUrl": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "Condo": {
+      "title": "Condo",
+      "description": "Condominium information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "units": { "type": "number" },
+        "planId": { "type": "string", "enum": ["BASIC", "PRO", "PREMIUM"] },
+        "subscriptionStatus": { "type": "string", "enum": ["ACTIVE", "PAST_DUE", "CANCELED"] },
+        "adminId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "planId", "adminId"]
+    },
+    "Resident": {
+      "title": "Resident",
+      "description": "Resident of a condominium",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "name": { "type": "string" },
+        "unit": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] }
+      },
+      "required": ["id", "condoId", "name", "unit"]
+    },
+    "Occurrence": {
+      "title": "Occurrence",
+      "description": "Condominium occurrence or issue",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "residentId", "title", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles"
+    },
+    "/condos/{condoId}": {
+      "schema": "Condo",
+      "description": "Condominium data"
+    },
+    "/condos/{condoId}/residents/{residentId}": {
+      "schema": "Resident",
+      "description": "Residents within a specific condo"
+    },
+    "/condos/{condoId}/occurrences/{occurrenceId}": {
+      "schema": "Occurrence",
+      "description": "Occurrences within a specific condo"
+    }
+  }
+}

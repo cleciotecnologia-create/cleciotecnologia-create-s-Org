@@ -1,0 +1,212 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - id: string (required)
+    //   - email: string (required, email format)
+    //   - name: string (required, size 1-100)
+    //   - role: string (required, enum: SUPER_ADMIN, CONDO_ADMIN, RESIDENT)
+    //   - condoId: string (optional, required if role != SUPER_ADMIN)
+    //   - avatarUrl: string (optional, size < 500)
+    //
+    // Collection: condos
+    // Document ID: {condoId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, size 1-100)
+    //   - address: string (required)
+    //   - city: string (required)
+    //   - units: number (required, positive)
+    //   - planId: string (required, enum: BASIC, PRO, PREMIUM)
+    //   - subscriptionStatus: string (required, enum: ACTIVE, PAST_DUE, CANCELED)
+    //   - adminId: string (required)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // Collection: condos/{condoId}/residents
+    // Document ID: {residentId}
+    // Fields:
+    //   - id: string (required)
+    //   - condoId: string (required)
+    //   - name: string (required, size 1-100)
+    //   - unit: string (required)
+    //   - email: string (optional, email format)
+    //   - phone: string (optional)
+    //   - status: string (required, enum: ACTIVE, INACTIVE)
+    //
+    // Collection: condos/{condoId}/occurrences
+    // Document ID: {occurrenceId}
+    // Fields:
+    //   - id: string (required)
+    //   - condoId: string (required)
+    //   - residentId: string (required)
+    //   - title: string (required, size 1-100)
+    //   - description: string (required, size 1-1000)
+    //   - status: string (required, enum: OPEN, IN_PROGRESS, RESOLVED)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (getUserData().role == 'SUPER_ADMIN' ||
+         (request.auth.token.email == "cleciotecnologia@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isCondoAdmin(condoId) {
+      return isAuthenticated() && 
+        getUserData().role == 'CONDO_ADMIN' && 
+        getUserData().condoId == condoId;
+    }
+
+    function isResident(condoId) {
+      return isAuthenticated() && 
+        getUserData().role == 'RESIDENT' && 
+        getUserData().condoId == condoId;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['id', 'email', 'name', 'role', 'condoId', 'avatarUrl']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'RESIDENT'] &&
+             (!('condoId' in data) || (data.condoId is string && data.condoId.size() > 0)) &&
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500));
+    }
+
+    function isValidCondo(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'adminId', 'createdAt']) &&
+             data.id is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.address is string && data.address.size() > 0 &&
+             data.city is string && data.city.size() > 0 &&
+             data.units is number && data.units > 0 &&
+             data.planId in ['BASIC', 'PRO', 'PREMIUM'] &&
+             data.subscriptionStatus in ['ACTIVE', 'PAST_DUE', 'CANCELED'] &&
+             data.adminId is string &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidResident(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'email', 'phone', 'status']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.unit is string &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             data.status in ['ACTIVE', 'INACTIVE'];
+    }
+
+    function isValidOccurrence(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'title', 'description', 'status', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.description is string && data.description.size() < 1000 &&
+             data.status in ['OPEN', 'IN_PROGRESS', 'RESOLVED'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own data. Super Admins can read all.
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Creation: 
+      // 1. User creating their own profile (cannot make themselves SUPER_ADMIN)
+      // 2. SUPER_ADMIN creating any user
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && request.resource.data.role != 'SUPER_ADMIN') || isAdmin());
+      
+      // Update:
+      // 1. User updating their own profile (cannot change their role)
+      // 2. SUPER_ADMIN updating any user
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+      
+      allow delete: if isAdmin();
+    }
+
+    match /condos/{condoId} {
+      // Read: SUPER_ADMIN, or CONDO_ADMIN/RESIDENT of this specific condo
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      
+      // Create: Only SUPER_ADMIN
+      allow create: if isAdmin() && isValidCondo(request.resource.data);
+      
+      // Update: SUPER_ADMIN or the specific CONDO_ADMIN
+      allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidCondo(request.resource.data);
+      
+      allow delete: if isAdmin();
+    }
+
+    match /condos/{condoId}/residents/{residentId} {
+      // Read: SUPER_ADMIN, CONDO_ADMIN of this condo, or the resident themselves
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && request.auth.uid == residentId);
+      
+      // Write: Only SUPER_ADMIN or CONDO_ADMIN of this condo
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidResident(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/occurrences/{occurrenceId} {
+      // Read: Any authorized user of the condo
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      
+      // Create: CONDO_ADMIN or RESIDENT of the condo
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && 
+                      isValidOccurrence(request.resource.data) && 
+                      request.resource.data.condoId == condoId &&
+                      (isResident(condoId) ? request.resource.data.residentId == request.auth.uid : true);
+      
+      // Update: CONDO_ADMIN (all) or RESIDENT (only their own)
+      allow update: if isAuthenticated() && isValidOccurrence(request.resource.data) && 
+                      (isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
+      
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+  }
+}
