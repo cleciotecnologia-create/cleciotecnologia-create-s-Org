@@ -632,80 +632,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
               </motion.div>
             )}
 
-            {activeMenu === 'chat' && (
-              <motion.div 
-                initial={{ opacity: 0, x: 20 }} 
-                animate={{ opacity: 1, x: 0 }} 
-                exit={{ opacity: 0, x: -20 }}
-                className="h-[calc(100vh-200px)] flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden"
-              >
-                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                  <div>
-                    <h3 className="text-2xl font-headline font-extrabold text-slate-800">Chat Comunitário</h3>
-                    <p className="text-sm text-slate-400 mt-1">Converse com seus vizinhos em tempo real.</p>
-                  </div>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    Online agora
-                  </div>
-                </div>
-
-                <div className="flex-grow overflow-y-auto p-8 space-y-6 flex flex-col">
-                  {messages.map((msg) => (
-                    <div 
-                      key={msg.id} 
-                      className={`flex flex-col ${msg.senderId === user.id ? 'items-end' : 'items-start'}`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          {msg.senderName}
-                        </span>
-                        <span className="text-[10px] text-slate-300">
-                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <div 
-                        className={`max-w-[70%] p-4 rounded-2xl text-sm font-medium shadow-sm ${
-                          msg.senderId === user.id 
-                            ? 'bg-blue-600 text-white rounded-tr-none' 
-                            : 'bg-slate-100 text-slate-800 rounded-tl-none'
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
-                    </div>
-                  ))}
-                  {messages.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                      <div className="bg-slate-50 p-6 rounded-full mb-4">
-                        <MessageSquare className="w-10 h-10 text-slate-300" />
-                      </div>
-                      <p className="text-slate-400 font-medium">Nenhuma mensagem ainda. Seja o primeiro a dizer oi!</p>
-                    </div>
-                  )}
-                </div>
-
-                <form onSubmit={handleSendMessage} className="p-8 bg-slate-50 border-t border-slate-100">
-                  <div className="flex gap-4">
-                    <input 
-                      type="text" 
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      placeholder="Digite sua mensagem..." 
-                      className="flex-grow p-4 bg-white rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-medium"
-                    />
-                    <button 
-                      type="submit"
-                      disabled={!newMessage.trim()}
-                      className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none"
-                    >
-                      Enviar
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            )}
-
             {activeMenu === 'residents' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -1135,7 +1061,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                   </div>
                 </div>
 
-                <div className="flex-grow overflow-y-auto p-8 space-y-6 bg-slate-50/30">
+                <div className="flex-grow overflow-y-auto p-8 space-y-2 bg-slate-50/30 flex flex-col">
                   {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
                       <MessageSquare className="w-16 h-16 mb-4" />
@@ -1143,23 +1069,47 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                       <p className="text-sm">Seja o primeiro a dizer oi!</p>
                     </div>
                   ) : (
-                    messages.map((msg) => (
-                      <div key={msg.id} className={`flex flex-col ${msg.senderId === user.id ? 'items-end' : 'items-start'}`}>
-                        <div className={`max-w-[70%] p-5 rounded-3xl shadow-sm ${
-                          msg.senderId === user.id 
-                            ? 'bg-blue-600 text-white rounded-tr-none' 
-                            : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'
-                        }`}>
-                          {msg.senderId !== user.id && (
-                            <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-50">{msg.senderName}</p>
+                    messages.map((msg, index) => {
+                      const prevMsg = messages[index - 1];
+                      const nextMsg = messages[index + 1];
+                      const isSameSenderAsPrev = prevMsg && prevMsg.senderId === msg.senderId;
+                      const isSameSenderAsNext = nextMsg && nextMsg.senderId === msg.senderId;
+                      const isMe = msg.senderId === user.id;
+
+                      return (
+                        <div 
+                          key={msg.id} 
+                          className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isSameSenderAsPrev ? 'mt-0.5' : 'mt-4'}`}
+                        >
+                          {!isMe && !isSameSenderAsPrev && (
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-2">
+                              {msg.senderName}
+                            </span>
                           )}
-                          <p className="text-sm leading-relaxed">{msg.text}</p>
+                          <div className="group relative flex items-center gap-3">
+                            {isMe && (
+                              <span className="text-[9px] font-bold text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                            <div 
+                              className={`max-w-[85%] p-4 rounded-2xl text-sm font-medium shadow-sm transition-all ${
+                                isMe 
+                                  ? `bg-blue-600 text-white ${isSameSenderAsPrev ? 'rounded-tr-md' : 'rounded-tr-none'} ${isSameSenderAsNext ? 'rounded-br-md' : ''}` 
+                                  : `bg-white text-slate-800 border border-slate-100 ${isSameSenderAsPrev ? 'rounded-tl-md' : 'rounded-tl-none'} ${isSameSenderAsNext ? 'rounded-bl-md' : ''}`
+                              }`}
+                            >
+                              {msg.text}
+                            </div>
+                            {!isMe && (
+                              <span className="text-[9px] font-bold text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-[10px] font-bold text-slate-400 mt-2 px-2">
-                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 
