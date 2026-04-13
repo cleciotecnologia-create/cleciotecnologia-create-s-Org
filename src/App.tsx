@@ -306,9 +306,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
     }, (err) => handleFirestoreError(err, OperationType.GET, `condos/${user.condoId}`));
 
     const residentsRef = collection(db, 'condos', user.condoId, 'residents');
-    const unsubResidents = onSnapshot(residentsRef, (snap) => {
-      setResidents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Resident)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residents`));
+    let unsubResidents = () => {};
+    if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
+      unsubResidents = onSnapshot(residentsRef, (snap) => {
+        setResidents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Resident)));
+      }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residents`));
+    }
 
     const occurrencesRef = collection(db, 'condos', user.condoId, 'occurrences');
     const unsubOccurrences = onSnapshot(occurrencesRef, (snap) => {
@@ -323,9 +326,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
 
     const auditLogsRef = collection(db, 'condos', user.condoId, 'auditLogs');
     const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
-    const unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
-      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
+    let unsubAuditLogs = () => {};
+    if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
+      unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
+        setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
+      }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
+    }
 
     return () => {
       unsubCondo();
@@ -2194,9 +2200,11 @@ export default function App() {
         errorMessage = `Este domínio (${window.location.hostname}) não está autorizado no Firebase.\n\nPara corrigir:\n1. Vá ao Console do Firebase\n2. Autenticação > Configurações > Domínios Autorizados\n3. Adicione "${window.location.hostname}"`;
       } else if (error.code === 'auth/operation-not-allowed') {
         errorMessage = "O login com Google não está ativado no seu projeto Firebase. Ative-o em Autenticação > Provedores de Login.";
+      } else if (error.code === 'auth/internal-error') {
+        errorMessage = "Erro interno do Firebase Auth. Isso geralmente acontece quando:\n1. O provedor Google não está ativado no Console Firebase.\n2. O 'E-mail de suporte' não foi configurado nas Configurações do Projeto.\n3. Há um problema de rede ou cookies de terceiros bloqueados.";
       }
       
-      alert(errorMessage + "\n\nCódigo do Erro: " + error.code);
+      alert(errorMessage + "\n\nDetalhes: " + (error.message || error.code));
     }
   };
 
