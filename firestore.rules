@@ -117,9 +117,9 @@ service cloud.firestore {
       return hasOnlyAllowedFields(['id', 'name', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'adminId', 'createdAt']) &&
              data.id is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.address is string && data.address.size() > 0 &&
+             data.address is string &&
              data.city is string && data.city.size() > 0 &&
-             data.units is number && data.units > 0 &&
+             data.units is number && data.units >= 0 &&
              data.planId in ['BASIC', 'PRO', 'PREMIUM'] &&
              data.subscriptionStatus in ['ACTIVE', 'PAST_DUE', 'CANCELED'] &&
              data.adminId is string &&
@@ -221,6 +221,11 @@ service cloud.firestore {
     match /condos/{condoId}/accessLogs/{logId} {
       allow read: if isAdmin() || isCondoAdmin(condoId);
       allow create: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

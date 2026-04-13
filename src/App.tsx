@@ -1136,6 +1136,9 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
+  const [showAddCondoModal, setShowAddCondoModal] = useState(false);
+  const [newCondo, setNewCondo] = useState({ name: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'] });
+  const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#2563eb' });
 
   useEffect(() => {
     const condosRef = collection(db, 'condos');
@@ -1148,11 +1151,51 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
       setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
 
+    // Load settings
+    const settingsRef = doc(db, 'settings', 'global');
+    const unsubSettings = onSnapshot(settingsRef, (snap) => {
+      if (snap.exists()) {
+        setAppSettings(snap.data() as any);
+      }
+    });
+
     return () => {
       unsubCondos();
       unsubUsers();
+      unsubSettings();
     };
   }, []);
+
+  const handleAddCondo = async () => {
+    try {
+      const condoRef = doc(collection(db, 'condos'));
+      const condoData: Condo = {
+        id: condoRef.id,
+        name: newCondo.name,
+        city: newCondo.city,
+        units: newCondo.units,
+        planId: newCondo.planId,
+        subscriptionStatus: 'ACTIVE',
+        adminId: '', // To be assigned
+        createdAt: new Date().toISOString(),
+        address: ''
+      };
+      await setDoc(condoRef, condoData);
+      setShowAddCondoModal(false);
+      setNewCondo({ name: '', city: '', units: 0, planId: 'BASIC' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'condos');
+    }
+  };
+
+  const handleUpdateSettings = async (updates: any) => {
+    try {
+      const settingsRef = doc(db, 'settings', 'global');
+      await setDoc(settingsRef, { ...appSettings, ...updates }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings');
+    }
+  };
 
   const menuItems = [
     { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard },
@@ -1286,7 +1329,10 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-slate-800">Todos os Condomínios</h3>
-                  <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                  <button 
+                    onClick={() => setShowAddCondoModal(true)}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                  >
                     <Plus className="w-5 h-5" /> Novo Condomínio
                   </button>
                 </div>
@@ -1369,8 +1415,40 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
               </motion.div>
             )}
 
+            {activeMenu === 'settings' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                  <h3 className="text-xl font-bold text-slate-800 mb-6">Personalização do SaaS</h3>
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">URL do Logotipo</label>
+                      <input 
+                        type="text" 
+                        value={appSettings.logo}
+                        onChange={(e) => handleUpdateSettings({ logo: e.target.value })}
+                        placeholder="https://exemplo.com/logo.png" 
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cor Primária</label>
+                      <div className="flex gap-4 items-center">
+                        <input 
+                          type="color" 
+                          value={appSettings.primaryColor}
+                          onChange={(e) => handleUpdateSettings({ primaryColor: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer border-none" 
+                        />
+                        <span className="text-sm font-mono text-gray-500">{appSettings.primaryColor}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* Placeholder for other menus */}
-            {!['overview', 'condos', 'users'].includes(activeMenu) && (
+            {!['overview', 'condos', 'users', 'settings'].includes(activeMenu) && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <div className="bg-gray-100 p-8 rounded-full mb-6">
                   <Settings className="w-12 h-12 text-gray-400" />
@@ -1382,6 +1460,85 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Add Condo Modal */}
+      <AnimatePresence>
+        {showAddCondoModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddCondoModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Novo Condomínio</h3>
+                <button onClick={() => setShowAddCondoModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Condomínio</label>
+                  <input 
+                    type="text" 
+                    value={newCondo.name}
+                    onChange={(e) => setNewCondo({...newCondo, name: e.target.value})}
+                    placeholder="Ex: Residencial Horizon" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cidade</label>
+                  <input 
+                    type="text" 
+                    value={newCondo.city}
+                    onChange={(e) => setNewCondo({...newCondo, city: e.target.value})}
+                    placeholder="Ex: São Paulo" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unidades</label>
+                    <input 
+                      type="number" 
+                      value={newCondo.units}
+                      onChange={(e) => setNewCondo({...newCondo, units: parseInt(e.target.value)})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Plano</label>
+                    <select 
+                      value={newCondo.planId}
+                      onChange={(e) => setNewCondo({...newCondo, planId: e.target.value as any})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="BASIC">Básico</option>
+                      <option value="PRO">Profissional</option>
+                      <option value="PREMIUM">Premium</option>
+                    </select>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleAddCondo}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Criar Condomínio
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
