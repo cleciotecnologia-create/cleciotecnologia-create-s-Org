@@ -108,6 +108,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "condoId", "senderId", "senderName", "text", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Log of administrative actions for audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "resourceType": { "type": "string", "enum": ["RESIDENT", "CONDO", "PAYMENT", "OCCURRENCE", "VISITOR"] },
+        "resourceId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "userId", "userName", "action", "resourceType", "timestamp"]
     }
   },
   "firestore": {
@@ -138,6 +155,10 @@
     "/condos/{condoId}/messages/{messageId}": {
       "schema": "ChatMessage",
       "description": "Chat messages for a condo"
+    },
+    "/condos/{condoId}/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit logs for administrative actions"
     }
   }
 }

@@ -4,11 +4,11 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
-  ArrowRight, Smartphone, BarChart3, Settings, QrCode
+  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { User as AppUser, Condo, Resident, Occurrence, Reservation, ChatMessage, PLANS, Plan } from './types';
+import { User as AppUser, Condo, Resident, Occurrence, Reservation, ChatMessage, AuditLog, PLANS, Plan } from './types';
 import { auth, db } from './firebase';
 import { 
   onAuthStateChanged, 
@@ -276,7 +276,7 @@ const LandingPage = ({ onLogin, onShowLoginModal }: { onLogin: () => void, onSho
   );
 };
 
-const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: () => void, appSettings: any }) => {
+const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void> }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -290,6 +290,7 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
   const [residents, setResidents] = useState<Resident[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
   const [newResident, setNewResident] = useState({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
@@ -320,11 +321,18 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatMessage)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/messages`));
 
+    const auditLogsRef = collection(db, 'condos', user.condoId, 'auditLogs');
+    const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
+    const unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
+      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
+
     return () => {
       unsubCondo();
       unsubResidents();
       unsubOccurrences();
       unsubMessages();
+      unsubAuditLogs();
     };
   }, [user.condoId]);
 
@@ -361,6 +369,8 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
       };
       await setDoc(userRef, userData);
 
+      await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}`);
+
       setShowAddResidentModal(false);
       setNewResident({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
     } catch (err) {
@@ -396,6 +406,7 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
     { id: 'concierge', label: 'Portaria Remota', icon: Shield },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard },
+    { id: 'audit', label: 'Auditoria', icon: History },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
@@ -1173,6 +1184,54 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
               </motion.div>
             )}
 
+            {activeMenu === 'audit' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: -20 }}
+                className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200/60"
+              >
+                <div className="flex justify-between items-center mb-10">
+                  <div>
+                    <h3 className="text-2xl font-headline font-extrabold text-slate-800">Trilha de Auditoria</h3>
+                    <p className="text-sm text-slate-400 mt-1">Histórico de ações administrativas realizadas no condomínio.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {auditLogs.length === 0 ? (
+                    <div className="text-center py-20 text-slate-400">
+                      <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                      <p>Nenhum registro de auditoria encontrado.</p>
+                    </div>
+                  ) : (
+                    auditLogs.map((log) => (
+                      <div key={log.id} className="flex items-center gap-6 p-6 rounded-3xl hover:bg-slate-50 transition-all border border-slate-100 group">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                          <History className="w-6 h-6" />
+                        </div>
+                        <div className="flex-grow">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-bold text-slate-800">{log.action}</span>
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-500">
+                              {log.resourceType}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">{log.details}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-slate-800">{log.userName}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'settings' && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <div className="bg-gray-100 p-8 rounded-full mb-6">
@@ -1487,11 +1546,12 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
   );
 };
 
-const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void }) => {
+const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, createAuditLog }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void> }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [showAddCondoModal, setShowAddCondoModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newCondo, setNewCondo] = useState({ name: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'] });
@@ -1508,9 +1568,16 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: 
       setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
 
+    const auditLogsRef = collection(db, 'condos', 'global', 'auditLogs');
+    const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
+    const unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
+      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'condos/global/auditLogs'));
+
     return () => {
       unsubCondos();
       unsubUsers();
+      unsubAuditLogs();
     };
   }, []);
 
@@ -1533,6 +1600,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: 
         address: ''
       };
       await setDoc(condoRef, condoData);
+      await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Cidade: ${newCondo.city}`, 'global');
       setShowAddCondoModal(false);
       setNewCondo({ name: '', city: '', units: 0, planId: 'BASIC' });
     } catch (err) {
@@ -1559,6 +1627,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: 
         createdAt: new Date().toISOString()
       };
       await setDoc(userRef, userData);
+      await createAuditLog('Cadastrou novo usuário', 'CONDO', userRef.id, `Usuário: ${newUser.name}, Role: ${newUser.role}`, 'global');
       setShowAddUserModal(false);
       setNewUser({ name: '', email: '', role: 'CONDO_ADMIN', condoId: '', cpf: '', login: '' });
     } catch (err) {
@@ -1581,6 +1650,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: 
     { id: 'condos', label: 'Condomínios', icon: Building2 },
     { id: 'users', label: 'Usuários', icon: Users },
     { id: 'plans', label: 'Planos & SaaS', icon: CreditCard },
+    { id: 'audit', label: 'Auditoria', icon: History },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
@@ -2044,6 +2114,7 @@ export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#00323d' });
 
   useEffect(() => {
@@ -2056,10 +2127,34 @@ export default function App() {
     return () => unsubSettings();
   }, []);
 
+  const createAuditLog = async (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => {
+    const targetCondoId = condoId || user?.condoId || 'global';
+    if (!user) return;
+    try {
+      const auditLogsRef = collection(db, 'condos', targetCondoId, 'auditLogs');
+      const logRef = doc(auditLogsRef);
+      const logData: AuditLog = {
+        id: logRef.id,
+        condoId: targetCondoId,
+        userId: user.id,
+        userName: user.name,
+        action,
+        resourceType,
+        resourceId,
+        details,
+        timestamp: new Date().toISOString()
+      };
+      await setDoc(logRef, logData);
+    } catch (err) {
+      console.error("Failed to create audit log:", err);
+    }
+  };
+
   const handleUpdateSettings = async (updates: any) => {
     try {
       const settingsRef = doc(db, 'settings', 'global');
       await setDoc(settingsRef, { ...appSettings, ...updates }, { merge: true });
+      await createAuditLog('Atualizou configurações globais', 'CONDO', 'global', JSON.stringify(updates), 'global');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'settings/global');
     }
@@ -2090,16 +2185,33 @@ export default function App() {
         if (userSnap.exists()) {
           setUser({ id: firebaseUser.uid, ...userSnap.data() } as AppUser);
         } else {
-          // Create initial profile if it doesn't exist
-          const isSuperAdmin = firebaseUser.email === 'cleciotecnologia@gmail.com';
-          const newUser: AppUser = {
-            id: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || 'Usuário',
-            role: isSuperAdmin ? 'SUPER_ADMIN' : 'CONDO_ADMIN', // Default for first login in this demo
-          };
-          await setDoc(userRef, newUser);
-          setUser(newUser);
+          // Check if there's a placeholder user from handleAddResident/handleAddUser
+          const placeholderQuery = query(collection(db, 'users'), where('email', '==', firebaseUser.email), limit(1));
+          const placeholderSnap = await getDocs(placeholderQuery);
+          
+          if (!placeholderSnap.empty && placeholderSnap.docs[0].id !== firebaseUser.uid) {
+            const existingData = placeholderSnap.docs[0].data() as AppUser;
+            const newUser: AppUser = {
+              ...existingData,
+              id: firebaseUser.uid,
+              name: firebaseUser.displayName || existingData.name,
+              createdAt: existingData.createdAt || new Date().toISOString()
+            };
+            await setDoc(userRef, newUser);
+            // We could delete the placeholder here, but it's safer to just leave it or handle it carefully
+            setUser(newUser);
+          } else {
+            // Create initial profile if it doesn't exist
+            const isSuperAdmin = firebaseUser.email === 'cleciotecnologia@gmail.com';
+            const newUser: AppUser = {
+              id: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || 'Usuário',
+              role: isSuperAdmin ? 'SUPER_ADMIN' : 'RESIDENT', // Default for first login
+            };
+            await setDoc(userRef, newUser);
+            setUser(newUser);
+          }
         }
       } else {
         setUser(null);
@@ -2164,7 +2276,53 @@ export default function App() {
       setShowLoginModal(false);
     } catch (error: any) {
       console.error("Erro no login:", error);
-      alert("Falha ao entrar. Verifique suas credenciais.");
+      let msg = "Falha ao entrar. Verifique suas credenciais.";
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        msg = "Email ou senha incorretos.";
+      } else if (error.code === 'auth/invalid-email') {
+        msg = "Email inválido.";
+      }
+      alert(msg);
+    }
+  };
+
+  const handleSignUp = async (email: string, pass: string, name: string) => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      // Update profile name
+      const userRef = doc(db, 'users', userCredential.user.uid);
+      
+      // Check if there's a placeholder user from handleAddResident
+      const placeholderQuery = query(collection(db, 'users'), where('email', '==', email), limit(1));
+      const placeholderSnap = await getDocs(placeholderQuery);
+      
+      let userData: AppUser;
+      
+      if (!placeholderSnap.empty && placeholderSnap.docs[0].id !== userCredential.user.uid) {
+        const existingData = placeholderSnap.docs[0].data() as AppUser;
+        userData = {
+          ...existingData,
+          id: userCredential.user.uid,
+          name: name || existingData.name,
+          createdAt: new Date().toISOString()
+        };
+        // Delete placeholder
+        // await deleteDoc(placeholderSnap.docs[0].ref); // We'll handle this in onAuthStateChanged or here
+      } else {
+        userData = {
+          id: userCredential.user.uid,
+          email,
+          name,
+          role: 'RESIDENT',
+          createdAt: new Date().toISOString()
+        };
+      }
+      
+      await setDoc(userRef, userData);
+      setShowLoginModal(false);
+    } catch (error: any) {
+      console.error("Erro no cadastro:", error);
+      alert("Erro ao criar conta: " + error.message);
     }
   };
 
@@ -2188,9 +2346,9 @@ export default function App() {
     <div className="font-sans text-primary">
       {user ? (
         user.role === 'SUPER_ADMIN' ? (
-          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} />
+          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} />
         ) : (
-          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} />
+          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} />
         )
       ) : (
         <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} />
@@ -2214,7 +2372,9 @@ export default function App() {
               className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-xl font-bold text-slate-800">Entrar no CondoPro</h3>
+                <h3 className="text-xl font-bold text-slate-800">
+                  {isRegistering ? 'Criar Conta no CondoPro' : 'Entrar no CondoPro'}
+                </h3>
                 <button onClick={() => setShowLoginModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
                   <X className="w-5 h-5" />
                 </button>
@@ -2223,15 +2383,40 @@ export default function App() {
                 <form onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  handleEmailLogin(formData.get('identifier') as string, formData.get('password') as string);
+                  if (isRegistering) {
+                    handleSignUp(
+                      formData.get('email') as string, 
+                      formData.get('password') as string,
+                      formData.get('name') as string
+                    );
+                  } else {
+                    handleEmailLogin(
+                      formData.get('identifier') as string, 
+                      formData.get('password') as string
+                    );
+                  }
                 }} className="space-y-4">
+                  {isRegistering && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                      <input 
+                        name="name"
+                        type="text" 
+                        required
+                        placeholder="Seu nome" 
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email, CPF ou Login</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                      {isRegistering ? 'Email' : 'Email, CPF ou Login'}
+                    </label>
                     <input 
-                      name="identifier"
-                      type="text" 
+                      name={isRegistering ? "email" : "identifier"}
+                      type={isRegistering ? "email" : "text"} 
                       required
-                      placeholder="Seu identificador" 
+                      placeholder={isRegistering ? "seu@email.com" : "Seu identificador"} 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
                   </div>
@@ -2249,26 +2434,36 @@ export default function App() {
                     type="submit"
                     className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
                   >
-                    Entrar
+                    {isRegistering ? 'Cadastrar' : 'Entrar'}
                   </button>
                 </form>
 
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-100"></div>
-                  </div>
-                  <span className="relative px-4 bg-white text-xs font-bold text-gray-400 uppercase tracking-widest">Ou</span>
-                </div>
+                {!isRegistering && (
+                  <>
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-100"></div>
+                      </div>
+                      <span className="relative px-4 bg-white text-xs font-bold text-gray-400 uppercase tracking-widest">Ou</span>
+                    </div>
 
-                <button 
-                  onClick={handleLogin}
-                  className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
-                >
-                  <Smartphone className="w-5 h-5" /> Entrar com Google
-                </button>
+                    <button 
+                      onClick={handleLogin}
+                      className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+                    >
+                      <Smartphone className="w-5 h-5" /> Entrar com Google
+                    </button>
+                  </>
+                )}
                 
                 <p className="text-center text-xs text-gray-400">
-                  Ainda não tem conta? <button className="text-blue-600 font-bold hover:underline">Fale com seu síndico</button>
+                  {isRegistering ? 'Já tem conta?' : 'Ainda não tem conta?'} {' '}
+                  <button 
+                    onClick={() => setIsRegistering(!isRegistering)}
+                    className="text-blue-600 font-bold hover:underline"
+                  >
+                    {isRegistering ? 'Faça Login' : 'Cadastre-se'}
+                  </button>
                 </p>
               </div>
             </motion.div>

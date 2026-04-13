@@ -165,6 +165,19 @@ service cloud.firestore {
              isValidDateString(data.createdAt);
     }
 
+    function isValidAuditLog(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'userId', 'userName', 'action', 'resourceType', 'resourceId', 'details', 'timestamp']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.userId is string &&
+             data.userName is string &&
+             data.action is string &&
+             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'OCCURRENCE', 'VISITOR'] &&
+             (!('resourceId' in data) || data.resourceId is string) &&
+             (!('details' in data) || data.details is string) &&
+             isValidDateString(data.timestamp);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -248,6 +261,15 @@ service cloud.firestore {
                       request.resource.data.condoId == condoId &&
                       request.resource.data.senderId == request.auth.uid;
       allow update, delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/auditLogs/{logId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId)) && 
+                      isValidAuditLog(request.resource.data) &&
+                      request.resource.data.condoId == condoId &&
+                      request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Audit logs are immutable
     }
 
     match /settings/{settingId} {

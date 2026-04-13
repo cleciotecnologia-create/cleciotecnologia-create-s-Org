@@ -84,6 +84,18 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface AuditLog {
+  id: string;
+  condoId: string;
+  userId: string;
+  userName: string;
+  action: string;
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR';
+  resourceId?: string;
+  details?: string;
+  timestamp: string;
+}
+
 export interface Plan {
   id: string;
   name: string;
