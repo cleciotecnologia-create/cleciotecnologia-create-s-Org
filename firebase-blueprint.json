@@ -60,6 +60,36 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "condoId", "residentId", "title", "status"]
+    },
+    "Visitor": {
+      "title": "Visitor",
+      "description": "Visitor authorized by a resident",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "name": { "type": "string" },
+        "cpf": { "type": "string" },
+        "type": { "type": "string", "enum": ["VISITOR", "SERVICE", "DELIVERY"] },
+        "status": { "type": "string", "enum": ["PENDING", "AUTHORIZED", "EXPIRED"] },
+        "validUntil": { "type": "string", "format": "date-time" },
+        "qrCode": { "type": "string" }
+      },
+      "required": ["id", "condoId", "residentId", "name", "type", "status", "validUntil"]
+    },
+    "AccessLog": {
+      "title": "AccessLog",
+      "description": "Log of entry/exit events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "visitorId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "action": { "type": "string", "enum": ["ENTRY", "EXIT"] }
+      },
+      "required": ["id", "condoId", "visitorId", "timestamp", "action"]
     }
   },
   "firestore": {
@@ -78,6 +108,14 @@
     "/condos/{condoId}/occurrences/{occurrenceId}": {
       "schema": "Occurrence",
       "description": "Occurrences within a specific condo"
+    },
+    "/condos/{condoId}/visitors/{visitorId}": {
+      "schema": "Visitor",
+      "description": "Visitors authorized for a condo"
+    },
+    "/condos/{condoId}/accessLogs/{logId}": {
+      "schema": "AccessLog",
+      "description": "Access logs for a condo"
     }
   }
 }

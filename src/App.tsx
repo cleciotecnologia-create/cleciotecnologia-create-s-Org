@@ -4,9 +4,10 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
-  ArrowRight, Smartphone, BarChart3, Settings
+  ArrowRight, Smartphone, BarChart3, Settings, QrCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 import { User as AppUser, Condo, Resident, Occurrence, Reservation, PLANS, Plan } from './types';
 import { auth, db } from './firebase';
 import { 
@@ -98,9 +99,11 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
         <div className="hidden md:flex items-center gap-8">
           <a href="#features" className="text-sm font-medium text-gray-600 hover:text-primary">Recursos</a>
           <a href="#plans" className="text-sm font-medium text-gray-600 hover:text-primary">Planos</a>
-          <button onClick={onLogin} className="text-sm font-bold text-primary">Entrar</button>
-          <button onClick={onLogin} className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all">
-            Teste Grátis
+          <button onClick={onLogin} className="flex items-center gap-2 text-sm font-bold text-primary hover:opacity-80 transition-all">
+            <Smartphone className="w-4 h-4" /> Entrar com Google
+          </button>
+          <button onClick={onLogin} className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all flex items-center gap-2">
+            <Sparkles className="w-4 h-4" /> Teste Grátis
           </button>
         </div>
       </nav>
@@ -122,11 +125,11 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
             Gerencie moradores, reservas, financeiro e ocorrências em uma única plataforma intuitiva. Reduza o trabalho manual e aumente a transparência.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button onClick={onLogin} className="bg-primary text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-all flex items-center justify-center gap-2">
-              Começar Agora <ArrowRight className="w-5 h-5" />
+            <button onClick={onLogin} className="bg-primary text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-all flex items-center justify-center gap-3">
+              <Smartphone className="w-6 h-6" /> Entrar com Google
             </button>
-            <button className="bg-white text-primary border-2 border-primary/10 px-8 py-4 rounded-2xl text-lg font-bold hover:bg-gray-50 transition-all">
-              Ver Demonstração
+            <button className="bg-white text-primary border-2 border-primary/10 px-8 py-4 rounded-2xl text-lg font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
+              Ver Demonstração <ArrowRight className="w-5 h-5" />
             </button>
           </div>
         </motion.div>
@@ -239,6 +242,11 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'CARD'>('PIX');
+  const [showVisitorModal, setShowVisitorModal] = useState(false);
+  const [selectedVisitorForQR, setSelectedVisitorForQR] = useState<any>(null);
+  const [visitorRequests, setVisitorRequests] = useState([
+    { id: 'req1', name: 'Marcos Oliveira', type: 'Prestador de Serviço', reason: 'Manutenção Ar Condicionado', time: '10:30' },
+  ]);
   const [condo, setCondo] = useState<Condo | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
@@ -275,6 +283,7 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
     { id: 'residents', label: 'Moradores', icon: Users },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
     { id: 'reservations', label: 'Reservas', icon: Calendar },
+    { id: 'concierge', label: 'Portaria Remota', icon: Shield },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard },
     { id: 'settings', label: 'Configurações', icon: Settings },
@@ -285,54 +294,97 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
-      <aside className={`bg-primary text-white transition-all duration-300 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
-        <div className="p-6 flex items-center gap-3 border-b border-white/10">
-          <Building2 className="w-8 h-8 flex-shrink-0" />
-          {isSidebarOpen && <span className="font-bold font-headline truncate">CondoPro</span>}
+      <aside className={`bg-slate-900 text-white transition-all duration-500 ease-in-out flex flex-col relative z-50 ${isSidebarOpen ? 'w-72' : 'w-24'}`}>
+        <div className="p-8 flex items-center gap-3 border-b border-white/5">
+          <div className="bg-blue-500 p-2 rounded-xl shadow-lg shadow-blue-500/20">
+            <Building2 className="w-6 h-6 text-white flex-shrink-0" />
+          </div>
+          {isSidebarOpen && (
+            <motion.span 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="font-black text-xl font-headline tracking-tight"
+            >
+              CondoPro
+            </motion.span>
+          )}
         </div>
         
-        <nav className="flex-grow p-4 space-y-2">
+        <nav className="flex-grow p-4 space-y-1 mt-4">
           {menuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveMenu(item.id)}
-              className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all ${activeMenu === item.id ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+              className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group ${
+                activeMenu === item.id 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
             >
-              <item.icon className="w-6 h-6 flex-shrink-0" />
-              {isSidebarOpen && <span className="font-medium">{item.label}</span>}
+              <item.icon className={`w-6 h-6 flex-shrink-0 transition-transform group-hover:scale-110 ${activeMenu === item.id ? 'text-white' : 'text-slate-500'}`} />
+              {isSidebarOpen && (
+                <motion.span 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="font-bold text-sm"
+                >
+                  {item.label}
+                </motion.span>
+              )}
+              {activeMenu === item.id && (
+                <motion.div 
+                  layoutId="active-pill"
+                  className="absolute left-0 w-1 h-6 bg-white rounded-r-full"
+                />
+              )}
             </button>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-white/10">
-          <button onClick={onLogout} className="w-full flex items-center gap-4 p-3 rounded-xl text-white/60 hover:text-red-400 transition-all">
-            <LogOut className="w-6 h-6 flex-shrink-0" />
-            {isSidebarOpen && <span className="font-medium">Sair</span>}
+        <div className="p-4 border-t border-white/5">
+          <button onClick={onLogout} className="w-full flex items-center gap-4 p-4 rounded-2xl text-slate-400 hover:text-red-400 hover:bg-red-400/5 transition-all group">
+            <LogOut className="w-6 h-6 flex-shrink-0 group-hover:-translate-x-1 transition-transform" />
+            {isSidebarOpen && <span className="font-bold text-sm">Sair da Conta</span>}
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-grow flex flex-col overflow-hidden">
+      <main className="flex-grow flex flex-col overflow-hidden bg-[#F8FAFC]">
         {/* Topbar */}
-        <header className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-gray-100 rounded-lg">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex justify-between items-center sticky top-0 z-40">
+          <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+              className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-500"
+            >
               {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
-            <h2 className="text-xl font-bold text-primary">{currentCondoName}</h2>
+            <div className="hidden md:flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl w-80 border border-slate-200/50">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input type="text" placeholder="Buscar no sistema..." className="bg-transparent border-none focus:outline-none text-sm w-full text-slate-600" />
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <button className="p-2 hover:bg-gray-100 rounded-full relative">
-              <Bell className="w-5 h-5 text-gray-500" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-primary">{user.name}</p>
-                <p className="text-xs text-gray-400">{user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 'Morador'}</p>
+          
+          <div className="flex items-center gap-5">
+            <div className="flex items-center gap-2">
+              <button className="p-2.5 hover:bg-slate-100 rounded-xl relative transition-colors group">
+                <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-600 transition-colors" />
+                <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              </button>
+              <button className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors group">
+                <Settings className="w-5 h-5 text-slate-500 group-hover:text-slate-800 transition-colors" />
+              </button>
+            </div>
+            
+            <div className="flex items-center gap-4 pl-6 border-l border-slate-200">
+              <div className="text-right hidden lg:block">
+                <p className="text-sm font-black text-slate-800 leading-none mb-1">{user.name}</p>
+                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                  {user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 'Morador'}
+                </p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-primary font-bold">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/20 ring-2 ring-white">
                 {user.name.substring(0, 2).toUpperCase()}
               </div>
             </div>
@@ -340,45 +392,83 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
         </header>
 
         {/* Content Area */}
-        <div className="flex-grow overflow-y-auto p-8">
+        <div className="flex-grow overflow-y-auto p-10">
           <AnimatePresence mode="wait">
             {activeMenu === 'overview' && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: -20 }} 
+                className="space-y-10"
+              >
+                {/* Welcome Banner */}
+                <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl shadow-slate-900/20">
+                  <div className="relative z-10 max-w-2xl">
+                    <h1 className="text-4xl font-headline font-extrabold mb-4 leading-tight">
+                      Olá, {user.name.split(' ')[0]}! 👋
+                    </h1>
+                    <p className="text-slate-400 text-lg mb-8 leading-relaxed">
+                      Bem-vindo ao painel do <span className="text-white font-bold">{currentCondoName}</span>. 
+                      Tudo parece em ordem por aqui hoje.
+                    </p>
+                    <div className="flex gap-4">
+                      <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20">
+                        Novo Comunicado
+                      </button>
+                      <button className="bg-white/10 text-white px-6 py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10">
+                        Ver Relatórios
+                      </button>
+                    </div>
+                  </div>
+                  <Sparkles className="absolute -right-10 -top-10 w-64 h-64 text-white/5 rotate-12" />
+                  <Building2 className="absolute right-10 bottom-0 w-48 h-48 text-white/5" />
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {[
-                    { label: 'Total Moradores', value: '742', icon: Users, color: 'bg-blue-500' },
-                    { label: 'Ocorrências Abertas', value: '08', icon: AlertTriangle, color: 'bg-orange-500' },
-                    { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'bg-green-500' },
-                    { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'bg-red-500' },
+                    { label: 'Total Moradores', value: '742', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+12 este mês' },
+                    { label: 'Ocorrências', value: '08', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '3 urgentes' },
+                    { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Salão ocupado' },
+                    { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-0.5% vs mês ant.' },
                   ].map((stat, i) => (
-                    <div key={i} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                      <div className={`${stat.color} w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-white shadow-lg shadow-current/20`}>
-                        <stat.icon className="w-6 h-6" />
+                    <div key={i} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60 hover:shadow-md transition-all group">
+                      <div className={`${stat.bg} ${stat.color} w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
+                        <stat.icon className="w-7 h-7" />
                       </div>
-                      <p className="text-sm font-medium text-gray-400 mb-1">{stat.label}</p>
-                      <p className="text-2xl font-black text-primary">{stat.value}</p>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">{stat.label}</p>
+                      <h3 className="text-3xl font-black text-slate-800 mb-2">{stat.value}</h3>
+                      <p className={`text-[10px] font-bold ${stat.color}`}>{stat.trend}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className="lg:col-span-2 bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-                    <div className="flex justify-between items-center mb-8">
-                      <h3 className="text-lg font-bold text-primary">Últimas Ocorrências</h3>
-                      <button className="text-sm font-bold text-primary hover:underline">Ver todas</button>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                  {/* Recent Activity */}
+                  <div className="lg:col-span-2 bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200/60">
+                    <div className="flex justify-between items-center mb-10">
+                      <div>
+                        <h3 className="text-2xl font-headline font-extrabold text-slate-800">Últimas Ocorrências</h3>
+                        <p className="text-sm text-slate-400 mt-1">Acompanhe o que está acontecendo agora.</p>
+                      </div>
+                      <button className="text-sm font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-4 py-2 rounded-xl transition-colors">
+                        Ver todas
+                      </button>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {MOCK_OCCURRENCES.map((occ) => (
-                        <div key={occ.id} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100">
-                          <div className={`w-2 h-10 rounded-full ${occ.status === 'OPEN' ? 'bg-orange-400' : 'bg-green-400'}`}></div>
-                          <div className="flex-grow">
-                            <p className="font-bold text-primary">{occ.title}</p>
-                            <p className="text-sm text-gray-400">{occ.description}</p>
+                        <div key={occ.id} className="flex items-center gap-6 p-6 rounded-3xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group">
+                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                            <AlertTriangle className="w-6 h-6" />
                           </div>
-                          <div className="text-right">
-                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{occ.createdAt}</p>
-                            <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'}`}>
-                              {occ.status}
+                          <div className="flex-grow">
+                            <h4 className="font-bold text-slate-800 text-lg group-hover:text-blue-600 transition-colors">{occ.title}</h4>
+                            <p className="text-sm text-slate-500 line-clamp-1">{occ.description}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{occ.createdAt}</p>
+                            <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-full ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {occ.status === 'OPEN' ? 'Pendente' : 'Resolvido'}
                             </span>
                           </div>
                         </div>
@@ -386,20 +476,31 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-                    <h3 className="text-lg font-bold text-primary mb-8">Ações Rápidas</h3>
-                    <div className="grid grid-cols-2 gap-4">
+                  {/* Quick Actions */}
+                  <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200/60">
+                    <h3 className="text-2xl font-headline font-extrabold text-slate-800 mb-10">Ações Rápidas</h3>
+                    <div className="grid grid-cols-2 gap-6">
                       {[
-                        { label: 'Novo Morador', icon: UserPlus },
-                        { label: 'Comunicado', icon: MessageSquare },
-                        { label: 'Nova Reserva', icon: Calendar },
-                        { label: 'Configurações', icon: Settings },
+                        { label: 'Novo Morador', icon: UserPlus, color: 'bg-blue-50 text-blue-600' },
+                        { label: 'Comunicado', icon: MessageSquare, color: 'bg-purple-50 text-purple-600' },
+                        { label: 'Nova Reserva', icon: Calendar, color: 'bg-emerald-50 text-emerald-600' },
+                        { label: 'Financeiro', icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
                       ].map((action, i) => (
-                        <button key={i} className="flex flex-col items-center justify-center p-6 rounded-2xl bg-gray-50 hover:bg-primary hover:text-white transition-all group">
-                          <action.icon className="w-6 h-6 mb-2 text-primary group-hover:text-white" />
-                          <span className="text-xs font-bold text-center">{action.label}</span>
+                        <button key={i} className="flex flex-col items-center justify-center p-8 rounded-3xl bg-slate-50 hover:bg-slate-900 hover:text-white transition-all group relative overflow-hidden">
+                          <div className={`${action.color} w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:bg-white/10 group-hover:text-white transition-colors`}>
+                            <action.icon className="w-6 h-6" />
+                          </div>
+                          <span className="text-xs font-black text-center uppercase tracking-tight">{action.label}</span>
                         </button>
                       ))}
+                    </div>
+                    <div className="mt-10 p-6 bg-slate-900 rounded-3xl text-white relative overflow-hidden group cursor-pointer">
+                      <div className="relative z-10">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-2">Suporte VIP</p>
+                        <h4 className="font-bold mb-2">Precisa de ajuda?</h4>
+                        <p className="text-xs text-slate-400">Fale com nosso time de especialistas agora.</p>
+                      </div>
+                      <Sparkles className="absolute -right-4 -bottom-4 w-20 h-20 text-white/10 group-hover:scale-125 transition-transform" />
                     </div>
                   </div>
                 </div>
@@ -548,6 +649,134 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
                       </div>
                     </div>
                   ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'concierge' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-primary">Portaria Remota</h3>
+                  <button 
+                    onClick={() => setShowVisitorModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
+                    <UserPlus className="w-5 h-5" /> Autorizar Visitante
+                  </button>
+                </div>
+
+                {/* Visitor Requests Approval Section */}
+                {visitorRequests.length > 0 && (
+                  <div className="bg-orange-50 border border-orange-100 rounded-[2rem] p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-orange-500 p-2 rounded-lg">
+                        <Bell className="w-5 h-5 text-white" />
+                      </div>
+                      <h4 className="text-lg font-bold text-orange-900">Solicitações de Acesso Pendentes</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {visitorRequests.map((req) => (
+                        <div key={req.id} className="bg-white p-6 rounded-2xl shadow-sm border border-orange-200 flex flex-col gap-4">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-black text-primary text-lg">{req.name}</p>
+                              <p className="text-sm text-gray-500">{req.type} • {req.reason}</p>
+                            </div>
+                            <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded-full">Aguardando</span>
+                          </div>
+                          <div className="flex gap-3">
+                            <button 
+                              onClick={() => setVisitorRequests(prev => prev.filter(r => r.id !== req.id))}
+                              className="flex-grow py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition-all"
+                            >
+                              Autorizar
+                            </button>
+                            <button 
+                              onClick={() => setVisitorRequests(prev => prev.filter(r => r.id !== req.id))}
+                              className="flex-grow py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                            >
+                              Recusar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                    <h4 className="text-lg font-bold text-primary mb-6">Visitantes Autorizados</h4>
+                    <div className="space-y-4">
+                      {[
+                        { id: 'v1', name: 'João Pereira', type: 'Visitante', status: 'AUTHORIZED', validUntil: 'Hoje, 22:00' },
+                        { id: 'v2', name: 'Carlos Entregas', type: 'Delivery', status: 'AUTHORIZED', validUntil: 'Hoje, 19:30' },
+                      ].map((visitor, i) => (
+                        <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                              <Users className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-primary">{visitor.name}</p>
+                              <p className="text-xs text-gray-400">{visitor.type} • Válido até {visitor.validUntil}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => setSelectedVisitorForQR(visitor)}
+                              className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"
+                              title="Ver QR Code"
+                            >
+                              <QrCode className="w-4 h-4" />
+                            </button>
+                            <button className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                    <h4 className="text-lg font-bold text-primary mb-6">Histórico de Acessos</h4>
+                    <div className="space-y-4">
+                      {[
+                        { name: 'João Pereira', action: 'Entrada', time: '14:20' },
+                        { name: 'Maria Souza', action: 'Saída', time: '12:15' },
+                        { name: 'Técnico Internet', action: 'Entrada', time: '09:45' },
+                      ].map((log, i) => (
+                        <div key={i} className="flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-2 h-8 rounded-full ${log.action === 'Entrada' ? 'bg-green-400' : 'bg-orange-400'}`}></div>
+                            <div>
+                              <p className="font-bold text-primary">{log.name}</p>
+                              <p className="text-xs text-gray-400">{log.action} às {log.time}</p>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-300" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-primary-container/10 p-8 rounded-[2.5rem] border border-primary-container/20 flex flex-col md:flex-row items-center gap-8">
+                  <div className="bg-white p-6 rounded-3xl shadow-xl">
+                    <div className="w-48 h-48 bg-gray-100 rounded-2xl flex items-center justify-center border-2 border-dashed border-gray-200">
+                      <Smartphone className="w-12 h-12 text-gray-300" />
+                    </div>
+                  </div>
+                  <div className="flex-grow text-center md:text-left">
+                    <h4 className="text-2xl font-black text-primary mb-4">Acesso via QR Code</h4>
+                    <p className="text-gray-600 mb-6 max-w-md">
+                      Gere um QR Code temporário e envie para seu visitante. Ele poderá liberar a entrada diretamente no leitor da portaria.
+                    </p>
+                    <button className="bg-primary text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-105 transition-all">
+                      Gerar QR Code de Acesso
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -744,6 +973,123 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
                     </button>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Visitor QR Code Modal */}
+      <AnimatePresence>
+        {selectedVisitorForQR && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setSelectedVisitorForQR(null)}
+              className="absolute inset-0 bg-primary/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-10 text-center"
+            >
+              <button 
+                onClick={() => setSelectedVisitorForQR(null)}
+                className="absolute top-6 right-6 p-2 hover:bg-gray-100 rounded-full text-gray-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="mb-8">
+                <div className="bg-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white shadow-lg shadow-blue-500/20">
+                  <QrCode className="w-8 h-8" />
+                </div>
+                <h3 className="text-2xl font-black text-primary">Convite Digital</h3>
+                <p className="text-gray-500 text-sm mt-1">Apresente este código na portaria</p>
+              </div>
+
+              <div className="bg-gray-50 p-8 rounded-[2rem] border-2 border-dashed border-gray-200 mb-8 flex justify-center">
+                <div className="bg-white p-4 rounded-2xl shadow-sm">
+                  <QRCodeSVG 
+                    value={JSON.stringify({
+                      visitorId: selectedVisitorForQR.id,
+                      name: selectedVisitorForQR.name,
+                      condoId: user.condoId,
+                      validUntil: selectedVisitorForQR.validUntil,
+                      type: selectedVisitorForQR.type
+                    })}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-left bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Visitante</p>
+                  <p className="font-bold text-primary">{selectedVisitorForQR.name}</p>
+                  <p className="text-xs text-gray-500">{selectedVisitorForQR.type} • Válido até {selectedVisitorForQR.validUntil}</p>
+                </div>
+                
+                <button className="w-full py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:scale-105 transition-all">
+                  Compartilhar no WhatsApp <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Visitor Authorization Modal */}
+      <AnimatePresence>
+        {showVisitorModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowVisitorModal(false)}
+              className="absolute inset-0 bg-primary/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-primary">Nova Autorização</h3>
+                <button onClick={() => setShowVisitorModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Visitante</label>
+                  <input type="text" placeholder="Nome completo" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo de Acesso</label>
+                  <select className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                    <option>Visitante</option>
+                    <option>Prestador de Serviço</option>
+                    <option>Delivery</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Validade</label>
+                  <input type="datetime-local" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <button 
+                  onClick={() => setShowVisitorModal(false)}
+                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20"
+                >
+                  Gerar Convite Digital
+                </button>
               </div>
             </motion.div>
           </div>

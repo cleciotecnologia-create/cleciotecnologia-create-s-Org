@@ -208,5 +208,19 @@ service cloud.firestore {
       
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
+
+    match /condos/{condoId}/visitors/{visitorId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && (resource == null || resource.data.residentId == request.auth.uid));
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && 
+                      request.resource.data.condoId == condoId &&
+                      (isResident(condoId) ? request.resource.data.residentId == request.auth.uid : true);
+      allow update: if isAuthenticated() && (isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/accessLogs/{logId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow create: if isAdmin() || isCondoAdmin(condoId);
+    }
   }
 }

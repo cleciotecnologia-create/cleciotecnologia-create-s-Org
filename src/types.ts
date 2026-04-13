@@ -50,6 +50,26 @@ export interface Reservation {
   status: 'PENDING' | 'CONFIRMED' | 'CANCELED';
 }
 
+export interface Visitor {
+  id: string;
+  condoId: string;
+  residentId: string;
+  name: string;
+  cpf?: string;
+  type: 'VISITOR' | 'SERVICE' | 'DELIVERY';
+  status: 'PENDING' | 'AUTHORIZED' | 'EXPIRED';
+  validUntil: string;
+  qrCode?: string;
+}
+
+export interface AccessLog {
+  id: string;
+  condoId: string;
+  visitorId: string;
+  timestamp: string;
+  action: 'ENTRY' | 'EXIT';
+}
+
 export interface Plan {
   id: string;
   name: string;
