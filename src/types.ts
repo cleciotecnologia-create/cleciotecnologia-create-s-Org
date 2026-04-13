@@ -4,9 +4,12 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  cpf?: string;
+  login?: string;
   role: UserRole;
   condoId?: string;
   avatarUrl?: string;
+  createdAt?: string;
 }
 
 export interface Condo {
@@ -28,6 +31,8 @@ export interface Resident {
   unit: string;
   email: string;
   phone: string;
+  cpf?: string;
+  login?: string;
   status: 'ACTIVE' | 'INACTIVE';
 }
 

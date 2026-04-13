@@ -12,6 +12,8 @@ service cloud.firestore {
     //   - id: string (required)
     //   - email: string (required, email format)
     //   - name: string (required, size 1-100)
+    //   - cpf: string (optional)
+    //   - login: string (optional)
     //   - role: string (required, enum: SUPER_ADMIN, CONDO_ADMIN, RESIDENT)
     //   - condoId: string (optional, required if role != SUPER_ADMIN)
     //   - avatarUrl: string (optional, size < 500)
@@ -83,8 +85,8 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        (getUserData().role == 'SUPER_ADMIN' ||
-         (request.auth.token.email == "cleciotecnologia@gmail.com" && request.auth.token.email_verified == true));
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN' ||
+          (request.auth.token.email == "cleciotecnologia@gmail.com" && request.auth.token.email_verified == true)); // Default admin
     }
 
     function isCondoAdmin(condoId) {
@@ -104,10 +106,12 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['id', 'email', 'name', 'role', 'condoId', 'avatarUrl']) &&
+      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'login', 'role', 'condoId', 'avatarUrl']) &&
              data.id is string && data.id.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
+             (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
              data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'RESIDENT'] &&
              (!('condoId' in data) || (data.condoId is string && data.condoId.size() > 0)) &&
              (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500));
@@ -127,12 +131,14 @@ service cloud.firestore {
     }
 
     function isValidResident(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'email', 'phone', 'status']) &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'email', 'phone', 'cpf', 'login', 'status']) &&
              data.id is string &&
              data.condoId is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.unit is string &&
              (!('email' in data) || isValidEmail(data.email)) &&
+             (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
+             (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
              data.status in ['ACTIVE', 'INACTIVE'];
     }
 

@@ -8,6 +8,8 @@
         "id": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "name": { "type": "string" },
+        "cpf": { "type": "string" },
+        "login": { "type": "string" },
         "role": { "type": "string", "enum": ["SUPER_ADMIN", "CONDO_ADMIN", "RESIDENT"] },
         "condoId": { "type": "string" },
         "avatarUrl": { "type": "string" }
@@ -42,6 +44,8 @@
         "unit": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
+        "cpf": { "type": "string" },
+        "login": { "type": "string" },
         "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] }
       },
       "required": ["id", "condoId", "name", "unit"]

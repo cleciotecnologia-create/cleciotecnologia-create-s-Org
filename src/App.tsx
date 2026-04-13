@@ -15,6 +15,9 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
 import { 
@@ -25,7 +28,9 @@ import {
   onSnapshot, 
   query, 
   where,
-  getDocFromServer
+  getDocFromServer,
+  getDocs,
+  limit
 } from 'firebase/firestore';
 
 // --- Error Handling ---
@@ -85,7 +90,7 @@ const MOCK_OCCURRENCES: Occurrence[] = [
 
 // --- Components ---
 
-const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
+const LandingPage = ({ onLogin, onShowLoginModal }: { onLogin: () => void, onShowLoginModal: () => void }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
@@ -103,10 +108,10 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
         <div className="hidden md:flex items-center gap-8">
           <a href="#features" className="text-sm font-medium text-gray-600 hover:text-primary">Recursos</a>
           <a href="#plans" className="text-sm font-medium text-gray-600 hover:text-primary">Planos</a>
-          <button onClick={onLogin} className="flex items-center gap-2 text-sm font-bold text-primary hover:opacity-80 transition-all">
-            <Smartphone className="w-4 h-4" /> Entrar com Google
+          <button onClick={onShowLoginModal} className="flex items-center gap-2 text-sm font-bold text-primary hover:opacity-80 transition-all">
+            <Smartphone className="w-4 h-4" /> Entrar
           </button>
-          <button onClick={onLogin} className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all flex items-center gap-2">
+          <button onClick={onShowLoginModal} className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all flex items-center gap-2">
             <Sparkles className="w-4 h-4" /> Teste Grátis
           </button>
         </div>
@@ -131,8 +136,8 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
               <div className="p-6 flex flex-col gap-4">
                 <a href="#features" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-primary">Recursos</a>
                 <a href="#plans" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-primary">Planos</a>
-                <button onClick={onLogin} className="w-full py-4 bg-primary text-white rounded-2xl font-bold flex items-center justify-center gap-3">
-                  <Smartphone className="w-6 h-6" /> Entrar com Google
+                <button onClick={onShowLoginModal} className="w-full py-4 bg-primary text-white rounded-2xl font-bold flex items-center justify-center gap-3">
+                  <Smartphone className="w-6 h-6" /> Entrar no Sistema
                 </button>
               </div>
             </motion.div>
@@ -157,8 +162,8 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
             Gerencie moradores, reservas, financeiro e ocorrências em uma única plataforma intuitiva. Reduza o trabalho manual e aumente a transparência.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button onClick={onLogin} className="bg-primary text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-all flex items-center justify-center gap-3">
-              <Smartphone className="w-6 h-6" /> Entrar com Google
+            <button onClick={onShowLoginModal} className="bg-primary text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-all flex items-center justify-center gap-3">
+              <Smartphone className="w-6 h-6" /> Começar Agora
             </button>
             <button className="bg-white text-primary border-2 border-primary/10 px-8 py-4 rounded-2xl text-lg font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
               Ver Demonstração <ArrowRight className="w-5 h-5" />
@@ -269,7 +274,7 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
   );
 };
 
-const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) => {
+const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: () => void, appSettings: any }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -282,6 +287,8 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
   const [condo, setCondo] = useState<Condo | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
+  const [showAddResidentModal, setShowAddResidentModal] = useState(false);
+  const [newResident, setNewResident] = useState({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
 
   useEffect(() => {
     if (!user.condoId) return;
@@ -310,6 +317,46 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
     };
   }, [user.condoId]);
 
+  const handleAddResident = async () => {
+    if (!newResident.name || !newResident.email) {
+      alert("Nome e Email são obrigatórios.");
+      return;
+    }
+    try {
+      const residentRef = doc(collection(db, 'condos', user.condoId, 'residents'));
+      const residentData: Resident = {
+        id: residentRef.id,
+        condoId: user.condoId,
+        name: newResident.name,
+        unit: newResident.unit,
+        email: newResident.email,
+        phone: newResident.phone,
+        cpf: newResident.cpf,
+        login: newResident.login,
+        status: 'ACTIVE'
+      };
+      await setDoc(residentRef, residentData);
+
+      const userRef = doc(collection(db, 'users'));
+      const userData: AppUser = {
+        id: userRef.id,
+        name: newResident.name,
+        email: newResident.email,
+        role: 'RESIDENT',
+        condoId: user.condoId,
+        cpf: newResident.cpf,
+        login: newResident.login,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(userRef, userData);
+
+      setShowAddResidentModal(false);
+      setNewResident({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/residents`);
+    }
+  };
+
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'residents', label: 'Moradores', icon: Users },
@@ -329,7 +376,11 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
       <aside className={`bg-slate-900 text-white transition-all duration-500 ease-in-out flex flex-col relative z-50 ${isSidebarOpen ? 'w-72' : 'w-24'}`}>
         <div className="p-8 flex items-center gap-3 border-b border-white/5">
           <div className="bg-blue-500 p-2 rounded-xl shadow-lg shadow-blue-500/20">
-            <Building2 className="w-6 h-6 text-white flex-shrink-0" />
+            {appSettings.logo ? (
+              <img src={appSettings.logo} alt="Logo" className="w-6 h-6 object-contain" referrerPolicy="no-referrer" />
+            ) : (
+              <Building2 className="w-6 h-6 text-white flex-shrink-0" />
+            )}
           </div>
           {isSidebarOpen && (
             <motion.span 
@@ -543,7 +594,10 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-primary">Gestão de Moradores</h3>
-                  <button className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20">
+                  <button 
+                    onClick={() => setShowAddResidentModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
                     <Plus className="w-5 h-5" /> Novo Morador
                   </button>
                 </div>
@@ -554,18 +608,23 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Nome</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Unidade</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Contato</th>
+                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {MOCK_RESIDENTS.map((res) => (
+                      {residents.map((res) => (
                         <tr key={res.id} className="hover:bg-gray-50 transition-all">
                           <td className="px-8 py-4 font-bold text-primary">{res.name}</td>
                           <td className="px-8 py-4 text-sm font-medium text-gray-600">{res.unit}</td>
                           <td className="px-8 py-4">
                             <p className="text-sm text-gray-600">{res.email}</p>
                             <p className="text-xs text-gray-400">{res.phone}</p>
+                          </td>
+                          <td className="px-8 py-4">
+                            <p className="text-sm font-medium text-slate-600">{res.cpf || '-'}</p>
+                            <p className="text-[10px] text-gray-400">{res.login || '-'}</p>
                           </td>
                           <td className="px-8 py-4">
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
@@ -794,6 +853,23 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
                   </div>
                 </div>
 
+                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row items-center gap-8 text-white">
+                  <div className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                    <div className="w-48 h-48 bg-blue-500/20 rounded-2xl flex items-center justify-center border-2 border-dashed border-blue-500/30 relative overflow-hidden">
+                      <Shield className="w-20 h-20 text-blue-400 animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="flex-grow text-center md:text-left">
+                    <h4 className="text-2xl font-black mb-4">Portaria Inteligente (Face ID)</h4>
+                    <p className="text-slate-400 mb-6 max-w-md">
+                      Cadastre sua face para acesso rápido e seguro. Nossa tecnologia de reconhecimento facial garante que apenas pessoas autorizadas entrem no condomínio.
+                    </p>
+                    <button className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2">
+                      <Smartphone className="w-5 h-5" /> Cadastrar Face ID
+                    </button>
+                  </div>
+                </div>
+
                 <div className="bg-primary-container/10 p-8 rounded-[2.5rem] border border-primary-container/20 flex flex-col md:flex-row items-center gap-8">
                   <div className="bg-white p-6 rounded-3xl shadow-xl">
                     <div className="w-48 h-48 bg-gray-100 rounded-2xl flex items-center justify-center border-2 border-dashed border-gray-200">
@@ -929,6 +1005,106 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Add Resident Modal */}
+      <AnimatePresence>
+        {showAddResidentModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddResidentModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Novo Morador</h3>
+                <button onClick={() => setShowAddResidentModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    value={newResident.name}
+                    onChange={(e) => setNewResident({...newResident, name: e.target.value})}
+                    placeholder="Ex: Maria Souza" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unidade</label>
+                    <input 
+                      type="text" 
+                      value={newResident.unit}
+                      onChange={(e) => setNewResident({...newResident, unit: e.target.value})}
+                      placeholder="Ex: 101A" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Telefone</label>
+                    <input 
+                      type="text" 
+                      value={newResident.phone}
+                      onChange={(e) => setNewResident({...newResident, phone: e.target.value})}
+                      placeholder="(00) 00000-0000" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
+                  <input 
+                    type="email" 
+                    value={newResident.email}
+                    onChange={(e) => setNewResident({...newResident, email: e.target.value})}
+                    placeholder="maria@email.com" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
+                    <input 
+                      type="text" 
+                      value={newResident.cpf}
+                      onChange={(e) => setNewResident({...newResident, cpf: e.target.value})}
+                      placeholder="000.000.000-00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <input 
+                      type="text" 
+                      value={newResident.login}
+                      onChange={(e) => setNewResident({...newResident, login: e.target.value})}
+                      placeholder="maria.souza" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <button 
+                  onClick={handleAddResident}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Criar Morador
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Payment Modal Simulation */}
       <AnimatePresence>
@@ -1131,14 +1307,15 @@ const Dashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) 
   );
 };
 
-const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () => void }) => {
+const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
   const [showAddCondoModal, setShowAddCondoModal] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newCondo, setNewCondo] = useState({ name: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'] });
-  const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#2563eb' });
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
 
   useEffect(() => {
     const condosRef = collection(db, 'condos');
@@ -1151,22 +1328,17 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
       setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
 
-    // Load settings
-    const settingsRef = doc(db, 'settings', 'global');
-    const unsubSettings = onSnapshot(settingsRef, (snap) => {
-      if (snap.exists()) {
-        setAppSettings(snap.data() as any);
-      }
-    });
-
     return () => {
       unsubCondos();
       unsubUsers();
-      unsubSettings();
     };
   }, []);
 
   const handleAddCondo = async () => {
+    if (!newCondo.name || !newCondo.city) {
+      alert("Por favor, preencha o nome e a cidade.");
+      return;
+    }
     try {
       const condoRef = doc(collection(db, 'condos'));
       const condoData: Condo = {
@@ -1176,7 +1348,7 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
         units: newCondo.units,
         planId: newCondo.planId,
         subscriptionStatus: 'ACTIVE',
-        adminId: '', // To be assigned
+        adminId: '',
         createdAt: new Date().toISOString(),
         address: ''
       };
@@ -1184,7 +1356,34 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
       setShowAddCondoModal(false);
       setNewCondo({ name: '', city: '', units: 0, planId: 'BASIC' });
     } catch (err) {
+      console.error("Erro ao adicionar condomínio:", err);
       handleFirestoreError(err, OperationType.CREATE, 'condos');
+    }
+  };
+
+  const handleAddUser = async () => {
+    if (!newUser.name || !newUser.email) {
+      alert("Nome e Email são obrigatórios.");
+      return;
+    }
+    try {
+      const userRef = doc(collection(db, 'users'));
+      const userData: AppUser = {
+        id: userRef.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        condoId: newUser.condoId,
+        cpf: newUser.cpf,
+        login: newUser.login,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(userRef, userData);
+      setShowAddUserModal(false);
+      setNewUser({ name: '', email: '', role: 'CONDO_ADMIN', condoId: '', cpf: '', login: '' });
+    } catch (err) {
+      console.error("Erro ao adicionar usuário:", err);
+      handleFirestoreError(err, OperationType.CREATE, 'users');
     }
   };
 
@@ -1216,8 +1415,12 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
     <div className="min-h-screen bg-gray-50 flex">
       <aside className={`bg-slate-900 text-white transition-all duration-300 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
         <div className="p-6 flex items-center gap-3 border-b border-white/5">
-          <Shield className="w-8 h-8 text-orange-400 flex-shrink-0" />
-          {isSidebarOpen && <span className="font-bold font-headline truncate">SuperAdmin</span>}
+          {appSettings.logo ? (
+            <img src={appSettings.logo} alt="Logo" className="w-8 h-8 object-contain flex-shrink-0" referrerPolicy="no-referrer" />
+          ) : (
+            <Shield className="w-8 h-8 text-orange-400 flex-shrink-0" />
+          )}
+          {isSidebarOpen && <span className="font-bold font-headline truncate">{appSettings.logo ? 'CondoPro' : 'SuperAdmin'}</span>}
         </div>
         <nav className="flex-grow p-4 space-y-2">
           {menuItems.map((item) => (
@@ -1378,12 +1581,19 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-slate-800">Base de Usuários</h3>
+                  <button 
+                    onClick={() => setShowAddUserModal(true)}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                  >
+                    <Plus className="w-5 h-5" /> Novo Usuário
+                  </button>
                 </div>
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Usuário</th>
+                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Papel</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Condomínio</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
@@ -1395,6 +1605,10 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
                           <td className="px-8 py-4">
                             <p className="font-bold text-slate-800">{u.name}</p>
                             <p className="text-xs text-gray-400">{u.email}</p>
+                          </td>
+                          <td className="px-8 py-4">
+                            <p className="text-sm font-medium text-slate-600">{u.cpf || '-'}</p>
+                            <p className="text-[10px] text-gray-400">{u.login || '-'}</p>
                           </td>
                           <td className="px-8 py-4">
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${u.role === 'SUPER_ADMIN' ? 'bg-orange-100 text-orange-600' : u.role === 'CONDO_ADMIN' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
@@ -1425,7 +1639,7 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
                       <input 
                         type="text" 
                         value={appSettings.logo}
-                        onChange={(e) => handleUpdateSettings({ logo: e.target.value })}
+                        onChange={(e) => onUpdateSettings({ logo: e.target.value })}
                         placeholder="https://exemplo.com/logo.png" 
                         className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                       />
@@ -1436,7 +1650,7 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
                         <input 
                           type="color" 
                           value={appSettings.primaryColor}
-                          onChange={(e) => handleUpdateSettings({ primaryColor: e.target.value })}
+                          onChange={(e) => onUpdateSettings({ primaryColor: e.target.value })}
                           className="w-12 h-12 rounded-lg cursor-pointer border-none" 
                         />
                         <span className="text-sm font-mono text-gray-500">{appSettings.primaryColor}</span>
@@ -1539,6 +1753,109 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
           </div>
         )}
       </AnimatePresence>
+
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {showAddUserModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddUserModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Novo Usuário</h3>
+                <button onClick={() => setShowAddUserModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    value={newUser.name}
+                    onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                    placeholder="Ex: João Silva" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
+                  <input 
+                    type="email" 
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                    placeholder="joao@email.com" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
+                    <input 
+                      type="text" 
+                      value={newUser.cpf}
+                      onChange={(e) => setNewUser({...newUser, cpf: e.target.value})}
+                      placeholder="000.000.000-00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <input 
+                      type="text" 
+                      value={newUser.login}
+                      onChange={(e) => setNewUser({...newUser, login: e.target.value})}
+                      placeholder="joao.silva" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Papel</label>
+                  <select 
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({...newUser, role: e.target.value as any})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="RESIDENT">Morador</option>
+                    <option value="CONDO_ADMIN">Síndico Admin</option>
+                    <option value="SUPER_ADMIN">Super Admin</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Condomínio</label>
+                  <select 
+                    value={newUser.condoId}
+                    onChange={(e) => setNewUser({...newUser, condoId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Nenhum</option>
+                    {condos.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button 
+                  onClick={handleAddUser}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Criar Usuário
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -1546,6 +1863,32 @@ const SuperAdminDashboard = ({ user, onLogout }: { user: AppUser, onLogout: () =
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#00323d' });
+
+  useEffect(() => {
+    const settingsRef = doc(db, 'settings', 'global');
+    const unsubSettings = onSnapshot(settingsRef, (snap) => {
+      if (snap.exists()) {
+        setAppSettings(snap.data() as any);
+      }
+    });
+    return () => unsubSettings();
+  }, []);
+
+  const handleUpdateSettings = async (updates: any) => {
+    try {
+      const settingsRef = doc(db, 'settings', 'global');
+      await setDoc(settingsRef, { ...appSettings, ...updates }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/global');
+    }
+  };
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--color-primary', appSettings.primaryColor);
+    // Derive a darker version for primary-container if possible, or just use it
+  }, [appSettings.primaryColor]);
 
   useEffect(() => {
     async function testConnection() {
@@ -1594,12 +1937,8 @@ export default function App() {
     });
 
     try {
-      console.log("Iniciando login com Google...");
-      console.log("Domínio atual:", window.location.hostname);
-      console.log("Configuração AuthDomain:", auth.config.authDomain);
-      
-      const result = await signInWithPopup(auth, provider);
-      console.log("Login bem-sucedido:", result.user.email);
+      await signInWithPopup(auth, provider);
+      setShowLoginModal(false);
     } catch (error: any) {
       console.error("Erro detalhado no login:", error);
       
@@ -1616,6 +1955,36 @@ export default function App() {
       }
       
       alert(errorMessage + "\n\nCódigo do Erro: " + error.code);
+    }
+  };
+
+  const handleEmailLogin = async (identifier: string, password: string) => {
+    try {
+      let email = identifier;
+      
+      // If not an email, search by CPF or Login
+      if (!identifier.includes('@')) {
+        // Search by CPF
+        const cpfQuery = query(collection(db, 'users'), where('cpf', '==', identifier), limit(1));
+        const cpfSnap = await getDocs(cpfQuery);
+        
+        if (!cpfSnap.empty) {
+          email = cpfSnap.docs[0].data().email;
+        } else {
+          // Search by Login
+          const loginQuery = query(collection(db, 'users'), where('login', '==', identifier), limit(1));
+          const loginSnap = await getDocs(loginQuery);
+          if (!loginSnap.empty) {
+            email = loginSnap.docs[0].data().email;
+          }
+        }
+      }
+
+      await signInWithEmailAndPassword(auth, email, password);
+      setShowLoginModal(false);
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      alert("Falha ao entrar. Verifique suas credenciais.");
     }
   };
 
@@ -1639,13 +2008,93 @@ export default function App() {
     <div className="font-sans text-primary">
       {user ? (
         user.role === 'SUPER_ADMIN' ? (
-          <SuperAdminDashboard user={user} onLogout={handleLogout} />
+          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} />
         ) : (
-          <Dashboard user={user} onLogout={handleLogout} />
+          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} />
         )
       ) : (
-        <LandingPage onLogin={handleLogin} />
+        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} />
       )}
+
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowLoginModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Entrar no CondoPro</h3>
+                <button onClick={() => setShowLoginModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  handleEmailLogin(formData.get('identifier') as string, formData.get('password') as string);
+                }} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email, CPF ou Login</label>
+                    <input 
+                      name="identifier"
+                      type="text" 
+                      required
+                      placeholder="Seu identificador" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Senha</label>
+                    <input 
+                      name="password"
+                      type="password" 
+                      required
+                      placeholder="••••••••" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                  >
+                    Entrar
+                  </button>
+                </form>
+
+                <div className="relative flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-100"></div>
+                  </div>
+                  <span className="relative px-4 bg-white text-xs font-bold text-gray-400 uppercase tracking-widest">Ou</span>
+                </div>
+
+                <button 
+                  onClick={handleLogin}
+                  className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+                >
+                  <Smartphone className="w-5 h-5" /> Entrar com Google
+                </button>
+                
+                <p className="text-center text-xs text-gray-400">
+                  Ainda não tem conta? <button className="text-blue-600 font-bold hover:underline">Fale com seu síndico</button>
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
