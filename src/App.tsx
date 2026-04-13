@@ -86,6 +86,8 @@ const MOCK_OCCURRENCES: Occurrence[] = [
 // --- Components ---
 
 const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   return (
     <div className="bg-white">
       {/* Navbar */}
@@ -94,8 +96,10 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
           <div className="bg-primary p-1.5 rounded-lg">
             <Building2 className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-bold text-primary font-headline tracking-tight">Gestão Condomínio Pro</span>
+          <span className="text-xl font-bold text-primary font-headline tracking-tight">CondoPro</span>
         </div>
+        
+        {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-8">
           <a href="#features" className="text-sm font-medium text-gray-600 hover:text-primary">Recursos</a>
           <a href="#plans" className="text-sm font-medium text-gray-600 hover:text-primary">Planos</a>
@@ -106,6 +110,34 @@ const LandingPage = ({ onLogin }: { onLogin: () => void }) => {
             <Sparkles className="w-4 h-4" /> Teste Grátis
           </button>
         </div>
+
+        {/* Mobile Toggle */}
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="md:hidden p-2 text-primary"
+        >
+          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
+
+        {/* Mobile Menu */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="absolute top-full left-0 w-full bg-white border-b border-gray-100 overflow-hidden md:hidden"
+            >
+              <div className="p-6 flex flex-col gap-4">
+                <a href="#features" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-primary">Recursos</a>
+                <a href="#plans" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-primary">Planos</a>
+                <button onClick={onLogin} className="w-full py-4 bg-primary text-white rounded-2xl font-bold flex items-center justify-center gap-3">
+                  <Smartphone className="w-6 h-6" /> Entrar com Google
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
 
       {/* Hero Section */}
@@ -1400,14 +1432,15 @@ export default function App() {
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
-    // Force account selection to ensure the user can pick the right Gmail
     provider.setCustomParameters({
       prompt: 'select_account'
     });
 
     try {
       console.log("Iniciando login com Google...");
+      console.log("Domínio atual:", window.location.hostname);
       console.log("Configuração AuthDomain:", auth.config.authDomain);
+      
       const result = await signInWithPopup(auth, provider);
       console.log("Login bem-sucedido:", result.user.email);
     } catch (error: any) {
@@ -1420,10 +1453,12 @@ export default function App() {
       } else if (error.code === 'auth/popup-closed-by-user') {
         errorMessage = "A janela de login foi fechada antes de completar a autenticação.";
       } else if (error.code === 'auth/unauthorized-domain') {
-        errorMessage = "Este domínio não está autorizado para autenticação no Firebase. Por favor, verifique as configurações do console do Firebase.";
+        errorMessage = `Este domínio (${window.location.hostname}) não está autorizado no Firebase.\n\nPara corrigir:\n1. Vá ao Console do Firebase\n2. Autenticação > Configurações > Domínios Autorizados\n3. Adicione "${window.location.hostname}"`;
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMessage = "O login com Google não está ativado no seu projeto Firebase. Ative-o em Autenticação > Provedores de Login.";
       }
       
-      alert(errorMessage + "\n\nDetalhes: " + (error.message || error));
+      alert(errorMessage + "\n\nCódigo do Erro: " + error.code);
     }
   };
 
