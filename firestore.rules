@@ -85,20 +85,22 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN' ||
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN') ||
           (request.auth.token.email == "cleciotecnologia@gmail.com" && request.auth.token.email_verified == true)); // Default admin
     }
 
     function isCondoAdmin(condoId) {
       return isAuthenticated() && 
-        getUserData().role == 'CONDO_ADMIN' && 
-        getUserData().condoId == condoId;
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CONDO_ADMIN' && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId;
     }
 
     function isResident(condoId) {
       return isAuthenticated() && 
-        getUserData().role == 'RESIDENT' && 
-        getUserData().condoId == condoId;
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'RESIDENT' && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId;
     }
 
     // ===============================================================
@@ -150,6 +152,16 @@ service cloud.firestore {
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
              data.description is string && data.description.size() < 1000 &&
              data.status in ['OPEN', 'IN_PROGRESS', 'RESOLVED'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidChatMessage(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'senderId', 'senderName', 'text', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.senderId is string &&
+             data.senderName is string && data.senderName.size() > 0 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
              isValidDateString(data.createdAt);
     }
 
@@ -227,6 +239,15 @@ service cloud.firestore {
     match /condos/{condoId}/accessLogs/{logId} {
       allow read: if isAdmin() || isCondoAdmin(condoId);
       allow create: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/messages/{messageId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId) || isResident(condoId)) && 
+                      isValidChatMessage(request.resource.data) &&
+                      request.resource.data.condoId == condoId &&
+                      request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
     match /settings/{settingId} {

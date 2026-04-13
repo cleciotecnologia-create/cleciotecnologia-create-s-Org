@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { 
   Bell, Plus, MapPin, Users, AlertTriangle, Sparkles, Shield, Building2, 
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { User as AppUser, Condo, Resident, Occurrence, Reservation, PLANS, Plan } from './types';
+import { User as AppUser, Condo, Resident, Occurrence, Reservation, ChatMessage, PLANS, Plan } from './types';
 import { auth, db } from './firebase';
 import { 
   onAuthStateChanged, 
@@ -30,7 +30,9 @@ import {
   where,
   getDocFromServer,
   getDocs,
-  limit
+  limit,
+  orderBy,
+  addDoc
 } from 'firebase/firestore';
 
 // --- Error Handling ---
@@ -287,6 +289,8 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
   const [condo, setCondo] = useState<Condo | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
   const [newResident, setNewResident] = useState({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
 
@@ -310,10 +314,17 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
       setOccurrences(snap.docs.map(d => ({ id: d.id, ...d.data() } as Occurrence)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/occurrences`));
 
+    const messagesRef = collection(db, 'condos', user.condoId, 'messages');
+    const messagesQuery = query(messagesRef, orderBy('createdAt', 'asc'), limit(50));
+    const unsubMessages = onSnapshot(messagesQuery, (snap) => {
+      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatMessage)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/messages`));
+
     return () => {
       unsubCondo();
       unsubResidents();
       unsubOccurrences();
+      unsubMessages();
     };
   }, [user.condoId]);
 
@@ -357,8 +368,28 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
     }
   };
 
+  const handleSendMessage = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user.condoId) return;
+
+    try {
+      const messagesRef = collection(db, 'condos', user.condoId, 'messages');
+      await addDoc(messagesRef, {
+        condoId: user.condoId,
+        senderId: user.id,
+        senderName: user.name,
+        text: newMessage,
+        createdAt: new Date().toISOString()
+      });
+      setNewMessage('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/messages`);
+    }
+  };
+
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
     { id: 'residents', label: 'Moradores', icon: Users },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
     { id: 'reservations', label: 'Reservas', icon: Calendar },
@@ -587,6 +618,80 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'chat' && (
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: -20 }}
+                className="h-[calc(100vh-200px)] flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden"
+              >
+                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <div>
+                    <h3 className="text-2xl font-headline font-extrabold text-slate-800">Chat Comunitário</h3>
+                    <p className="text-sm text-slate-400 mt-1">Converse com seus vizinhos em tempo real.</p>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    Online agora
+                  </div>
+                </div>
+
+                <div className="flex-grow overflow-y-auto p-8 space-y-6 flex flex-col">
+                  {messages.map((msg) => (
+                    <div 
+                      key={msg.id} 
+                      className={`flex flex-col ${msg.senderId === user.id ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          {msg.senderName}
+                        </span>
+                        <span className="text-[10px] text-slate-300">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div 
+                        className={`max-w-[70%] p-4 rounded-2xl text-sm font-medium shadow-sm ${
+                          msg.senderId === user.id 
+                            ? 'bg-blue-600 text-white rounded-tr-none' 
+                            : 'bg-slate-100 text-slate-800 rounded-tl-none'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                  {messages.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-20">
+                      <div className="bg-slate-50 p-6 rounded-full mb-4">
+                        <MessageSquare className="w-10 h-10 text-slate-300" />
+                      </div>
+                      <p className="text-slate-400 font-medium">Nenhuma mensagem ainda. Seja o primeiro a dizer oi!</p>
+                    </div>
+                  )}
+                </div>
+
+                <form onSubmit={handleSendMessage} className="p-8 bg-slate-50 border-t border-slate-100">
+                  <div className="flex gap-4">
+                    <input 
+                      type="text" 
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder="Digite sua mensagem..." 
+                      className="flex-grow p-4 bg-white rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-medium"
+                    />
+                    <button 
+                      type="submit"
+                      disabled={!newMessage.trim()}
+                      className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none"
+                    >
+                      Enviar
+                    </button>
+                  </div>
+                </form>
               </motion.div>
             )}
 
@@ -990,6 +1095,81 @@ const Dashboard = ({ user, onLogout, appSettings }: { user: AppUser, onLogout: (
                     ))}
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'chat' && (
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: -20 }}
+                className="flex flex-col h-[calc(100vh-12rem)] bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden"
+              >
+                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <div>
+                    <h3 className="text-2xl font-headline font-extrabold text-slate-800">Chat Comunitário</h3>
+                    <p className="text-sm text-slate-400 mt-1">Converse com outros moradores do {currentCondoName}</p>
+                  </div>
+                  <div className="flex -space-x-3">
+                    {residents.slice(0, 5).map((r, i) => (
+                      <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                        {r.name.split(' ').map(n => n[0]).join('')}
+                      </div>
+                    ))}
+                    {residents.length > 5 && (
+                      <div className="w-10 h-10 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600">
+                        +{residents.length - 5}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-grow overflow-y-auto p-8 space-y-6 bg-slate-50/30">
+                  {messages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
+                      <MessageSquare className="w-16 h-16 mb-4" />
+                      <p className="font-bold">Nenhuma mensagem ainda.</p>
+                      <p className="text-sm">Seja o primeiro a dizer oi!</p>
+                    </div>
+                  ) : (
+                    messages.map((msg) => (
+                      <div key={msg.id} className={`flex flex-col ${msg.senderId === user.id ? 'items-end' : 'items-start'}`}>
+                        <div className={`max-w-[70%] p-5 rounded-3xl shadow-sm ${
+                          msg.senderId === user.id 
+                            ? 'bg-blue-600 text-white rounded-tr-none' 
+                            : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'
+                        }`}>
+                          {msg.senderId !== user.id && (
+                            <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-50">{msg.senderName}</p>
+                          )}
+                          <p className="text-sm leading-relaxed">{msg.text}</p>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2 px-2">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <form onSubmit={handleSendMessage} className="p-8 bg-white border-t border-slate-100">
+                  <div className="flex gap-4">
+                    <input 
+                      type="text" 
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder="Digite sua mensagem..." 
+                      className="flex-grow p-5 bg-slate-50 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                    <button 
+                      type="submit"
+                      disabled={!newMessage.trim()}
+                      className="bg-blue-600 text-white px-8 py-5 rounded-2xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none"
+                    >
+                      Enviar
+                    </button>
+                  </div>
+                </form>
               </motion.div>
             )}
 

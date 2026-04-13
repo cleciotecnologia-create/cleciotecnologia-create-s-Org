@@ -75,6 +75,15 @@ export interface AccessLog {
   action: 'ENTRY' | 'EXIT';
 }
 
+export interface ChatMessage {
+  id: string;
+  condoId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface Plan {
   id: string;
   name: string;

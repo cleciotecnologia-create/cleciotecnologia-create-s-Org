@@ -94,6 +94,20 @@
         "action": { "type": "string", "enum": ["ENTRY", "EXIT"] }
       },
       "required": ["id", "condoId", "visitorId", "timestamp", "action"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time chat message between residents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "senderId", "senderName", "text", "createdAt"]
     }
   },
   "firestore": {
@@ -120,6 +134,10 @@
     "/condos/{condoId}/accessLogs/{logId}": {
       "schema": "AccessLog",
       "description": "Access logs for a condo"
+    },
+    "/condos/{condoId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages for a condo"
     }
   }
 }
