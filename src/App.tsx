@@ -1400,10 +1400,30 @@ export default function App() {
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
+    // Force account selection to ensure the user can pick the right Gmail
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+
     try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
+      console.log("Iniciando login com Google...");
+      console.log("Configuração AuthDomain:", auth.config.authDomain);
+      const result = await signInWithPopup(auth, provider);
+      console.log("Login bem-sucedido:", result.user.email);
+    } catch (error: any) {
+      console.error("Erro detalhado no login:", error);
+      
+      let errorMessage = "Ocorreu um erro ao tentar entrar com o Google.";
+      
+      if (error.code === 'auth/popup-blocked') {
+        errorMessage = "O popup de login foi bloqueado pelo seu navegador. Por favor, permita popups para este site.";
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        errorMessage = "A janela de login foi fechada antes de completar a autenticação.";
+      } else if (error.code === 'auth/unauthorized-domain') {
+        errorMessage = "Este domínio não está autorizado para autenticação no Firebase. Por favor, verifique as configurações do console do Firebase.";
+      }
+      
+      alert(errorMessage + "\n\nDetalhes: " + (error.message || error));
     }
   };
 
