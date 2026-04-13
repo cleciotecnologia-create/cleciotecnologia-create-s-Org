@@ -1514,6 +1514,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
 
   useEffect(() => {
+    if (user.role !== 'SUPER_ADMIN') return;
+
     const condosRef = collection(db, 'condos');
     const unsubCondos = onSnapshot(condosRef, (snap) => {
       setCondos(snap.docs.map(d => ({ id: d.id, ...d.data() } as Condo)));
@@ -1535,7 +1537,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       unsubUsers();
       unsubAuditLogs();
     };
-  }, []);
+  }, [user.role]);
 
   const handleAddCondo = async () => {
     if (!newCondo.name || !newCondo.city) {
