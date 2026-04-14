@@ -419,10 +419,25 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   const currentCondoName = condo?.name || MOCK_CONDO.name;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
-      <aside className={`bg-slate-900 text-white transition-all duration-500 ease-in-out flex flex-col relative z-50 ${isSidebarOpen ? 'w-72' : 'w-24'}`}>
-        <div className="p-8 flex items-center gap-3 border-b border-white/5">
+      <aside className={`bg-slate-900 text-white transition-all duration-500 ease-in-out flex flex-col fixed inset-y-0 left-0 z-50 lg:relative ${
+        isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0 w-0 lg:w-24'
+      }`}>
+        <div className={`p-8 flex items-center gap-3 border-b border-white/5 ${!isSidebarOpen && 'lg:justify-center'}`}>
           <div className="bg-blue-500 p-2 rounded-xl shadow-lg shadow-blue-500/20">
             {appSettings.logo ? (
               <img src={appSettings.logo} alt="Logo" className="w-6 h-6 object-contain" referrerPolicy="no-referrer" />
@@ -483,15 +498,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       {/* Main Content */}
       <main className="flex-grow flex flex-col overflow-hidden bg-[#F8FAFC]">
         {/* Topbar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex justify-between items-center sticky top-0 z-40">
-          <div className="flex items-center gap-6">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 sm:px-8 py-4 sm:py-5 flex justify-between items-center sticky top-0 z-40">
+          <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
               className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-500"
             >
-              {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              <Menu className="w-5 h-5" />
             </button>
-            <div className="hidden md:flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl w-80 border border-slate-200/50">
+            <div className="hidden md:flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl w-64 lg:w-80 border border-slate-200/50">
               <Search className="w-4 h-4 text-slate-400" />
               <input type="text" placeholder="Buscar no sistema..." className="bg-transparent border-none focus:outline-none text-sm w-full text-slate-600" />
             </div>
@@ -523,81 +538,81 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
         </header>
 
         {/* Content Area */}
-        <div className="flex-grow overflow-y-auto p-10">
+        <div className="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-10">
           <AnimatePresence mode="wait">
             {activeMenu === 'overview' && (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }} 
                 animate={{ opacity: 1, y: 0 }} 
                 exit={{ opacity: 0, y: -20 }} 
-                className="space-y-10"
+                className="space-y-6 lg:space-y-10"
               >
                 {/* Welcome Banner */}
-                <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl shadow-slate-900/20">
+                <div className="bg-slate-900 rounded-3xl lg:rounded-[2.5rem] p-6 sm:p-10 text-white relative overflow-hidden shadow-2xl shadow-slate-900/20">
                   <div className="relative z-10 max-w-2xl">
-                    <h1 className="text-4xl font-headline font-extrabold mb-4 leading-tight">
+                    <h1 className="text-2xl sm:text-3xl lg:text-4xl font-headline font-extrabold mb-4 leading-tight">
                       Olá, {user.name.split(' ')[0]}! 👋
                     </h1>
-                    <p className="text-slate-400 text-lg mb-8 leading-relaxed">
+                    <p className="text-slate-400 text-base sm:text-lg mb-6 sm:mb-8 leading-relaxed">
                       Bem-vindo ao painel do <span className="text-white font-bold">{currentCondoName}</span>. 
                       Tudo parece em ordem por aqui hoje.
                     </p>
-                    <div className="flex gap-4">
-                      <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20">
+                    <div className="flex flex-wrap gap-3 sm:gap-4">
+                      <button className="bg-blue-600 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 text-sm sm:text-base">
                         Novo Comunicado
                       </button>
-                      <button className="bg-white/10 text-white px-6 py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10">
+                      <button className="bg-white/10 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10 text-sm sm:text-base">
                         Ver Relatórios
                       </button>
                     </div>
                   </div>
-                  <Sparkles className="absolute -right-10 -top-10 w-64 h-64 text-white/5 rotate-12" />
-                  <Building2 className="absolute right-10 bottom-0 w-48 h-48 text-white/5" />
+                  <Sparkles className="absolute -right-10 -top-10 w-48 sm:w-64 h-48 sm:h-64 text-white/5 rotate-12" />
+                  <Building2 className="absolute right-10 bottom-0 w-32 sm:w-48 h-32 sm:h-48 text-white/5" />
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                   {[
                     { label: 'Total Moradores', value: '742', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+12 este mês' },
                     { label: 'Ocorrências', value: '08', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '3 urgentes' },
                     { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Salão ocupado' },
                     { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-0.5% vs mês ant.' },
                   ].map((stat, i) => (
-                    <div key={i} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60 hover:shadow-md transition-all group">
-                      <div className={`${stat.bg} ${stat.color} w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                        <stat.icon className="w-7 h-7" />
+                    <div key={i} className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-200/60 hover:shadow-md transition-all group">
+                      <div className={`${stat.bg} ${stat.color} w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-4 sm:mb-6 group-hover:scale-110 transition-transform`}>
+                        <stat.icon className="w-6 h-6 sm:w-7 sm:h-7" />
                       </div>
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">{stat.label}</p>
-                      <h3 className="text-3xl font-black text-slate-800 mb-2">{stat.value}</h3>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 sm:mb-2">{stat.label}</p>
+                      <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-1 sm:mb-2">{stat.value}</h3>
                       <p className={`text-[10px] font-bold ${stat.color}`}>{stat.trend}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
                   {/* Recent Activity */}
-                  <div className="lg:col-span-2 bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200/60">
-                    <div className="flex justify-between items-center mb-10">
+                  <div className="lg:col-span-2 bg-white rounded-3xl lg:rounded-[2.5rem] p-6 sm:p-10 shadow-sm border border-slate-200/60">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 sm:mb-10">
                       <div>
-                        <h3 className="text-2xl font-headline font-extrabold text-slate-800">Últimas Ocorrências</h3>
+                        <h3 className="text-xl sm:text-2xl font-headline font-extrabold text-slate-800">Últimas Ocorrências</h3>
                         <p className="text-sm text-slate-400 mt-1">Acompanhe o que está acontecendo agora.</p>
                       </div>
                       <button className="text-sm font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-4 py-2 rounded-xl transition-colors">
                         Ver todas
                       </button>
                     </div>
-                    <div className="space-y-6">
+                    <div className="space-y-4 sm:space-y-6">
                       {MOCK_OCCURRENCES.map((occ) => (
-                        <div key={occ.id} className="flex items-center gap-6 p-6 rounded-3xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group">
-                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                            <AlertTriangle className="w-6 h-6" />
+                        <div key={occ.id} className="flex items-center gap-4 sm:gap-6 p-4 sm:p-6 rounded-2xl sm:rounded-3xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group">
+                          <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0 ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                            <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />
                           </div>
-                          <div className="flex-grow">
-                            <h4 className="font-bold text-slate-800 text-lg group-hover:text-blue-600 transition-colors">{occ.title}</h4>
-                            <p className="text-sm text-slate-500 line-clamp-1">{occ.description}</p>
+                          <div className="flex-grow min-w-0">
+                            <h4 className="font-bold text-slate-800 text-base sm:text-lg group-hover:text-blue-600 transition-colors truncate">{occ.title}</h4>
+                            <p className="text-xs sm:text-sm text-slate-500 line-clamp-1">{occ.description}</p>
                           </div>
                           <div className="text-right flex-shrink-0">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{occ.createdAt}</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 sm:mb-2">{occ.createdAt}</p>
                             <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-full ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
                               {occ.status === 'OPEN' ? 'Pendente' : 'Resolvido'}
                             </span>
@@ -1046,28 +1061,28 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                 initial={{ opacity: 0, x: 20 }} 
                 animate={{ opacity: 1, x: 0 }} 
                 exit={{ opacity: 0, x: -20 }}
-                className="flex flex-col h-[calc(100vh-12rem)] bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden"
+                className="flex flex-col h-[calc(100vh-8rem)] sm:h-[calc(100vh-12rem)] bg-white rounded-3xl lg:rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden"
               >
-                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div className="p-4 sm:p-8 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
                   <div>
-                    <h3 className="text-2xl font-headline font-extrabold text-slate-800">Chat Comunitário</h3>
-                    <p className="text-sm text-slate-400 mt-1">Converse com outros moradores do {currentCondoName}</p>
+                    <h3 className="text-xl sm:text-2xl font-headline font-extrabold text-slate-800">Chat Comunitário</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-1">Converse com outros moradores do {currentCondoName}</p>
                   </div>
-                  <div className="flex -space-x-3">
+                  <div className="flex -space-x-2 sm:-space-x-3">
                     {residents.slice(0, 5).map((r, i) => (
-                      <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                      <div key={i} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white bg-blue-100 flex items-center justify-center text-[9px] sm:text-[10px] font-bold text-blue-600">
                         {r.name.split(' ').map(n => n[0]).join('')}
                       </div>
                     ))}
                     {residents.length > 5 && (
-                      <div className="w-10 h-10 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[9px] sm:text-[10px] font-bold text-slate-600">
                         +{residents.length - 5}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex-grow overflow-y-auto p-8 space-y-2 bg-slate-50/30 flex flex-col">
+                <div className="flex-grow overflow-y-auto p-4 sm:p-8 space-y-2 bg-slate-50/30 flex flex-col">
                   {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
                       <MessageSquare className="w-16 h-16 mb-4" />
@@ -1119,19 +1134,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                   )}
                 </div>
 
-                <form onSubmit={handleSendMessage} className="p-8 bg-white border-t border-slate-100">
-                  <div className="flex gap-4">
+                <form onSubmit={handleSendMessage} className="p-4 sm:p-8 bg-white border-t border-slate-100">
+                  <div className="flex gap-2 sm:gap-4">
                     <input 
                       type="text" 
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
                       placeholder="Digite sua mensagem..." 
-                      className="flex-grow p-5 bg-slate-50 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                      className="flex-grow p-4 sm:p-5 bg-slate-50 rounded-xl sm:rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm sm:text-base"
                     />
                     <button 
                       type="submit"
                       disabled={!newMessage.trim()}
-                      className="bg-blue-600 text-white px-8 py-5 rounded-2xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none"
+                      className="bg-blue-600 text-white px-5 sm:px-8 py-4 sm:py-5 rounded-xl sm:rounded-2xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none text-sm sm:text-base"
                     >
                       Enviar
                     </button>
@@ -1620,9 +1635,24 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <aside className={`bg-slate-900 text-white transition-all duration-300 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
-        <div className="p-6 flex items-center gap-3 border-b border-white/5">
+    <div className="min-h-screen bg-gray-50 flex relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <aside className={`bg-slate-900 text-white transition-all duration-300 flex flex-col fixed inset-y-0 left-0 z-50 lg:relative ${
+        isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-20'
+      }`}>
+        <div className={`p-6 flex items-center gap-3 border-b border-white/5 ${!isSidebarOpen && 'lg:justify-center'}`}>
           {appSettings.logo ? (
             <img src={appSettings.logo} alt="Logo" className="w-8 h-8 object-contain flex-shrink-0" referrerPolicy="no-referrer" />
           ) : (
@@ -1651,58 +1681,58 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       </aside>
 
       <main className="flex-grow flex flex-col overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center">
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-8 py-4 flex justify-between items-center sticky top-0 z-40">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-gray-100 rounded-lg">
-              {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              <Menu className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-bold text-slate-800">Administração Global</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 truncate">Administração Global</h2>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-bold text-slate-800">{user.name}</p>
-                <p className="text-xs text-orange-500 font-bold uppercase">Proprietário SaaS</p>
+                <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider">Proprietário SaaS</p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-sm sm:text-base">
                 SA
               </div>
             </div>
           </div>
         </header>
 
-        <div className="flex-grow overflow-y-auto p-8">
+        <div className="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-8">
           <AnimatePresence mode="wait">
             {activeMenu === 'overview' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                   {stats.map((stat, i) => (
                     <div key={i} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                      <div className={`${stat.color} w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-white shadow-lg shadow-current/20`}>
-                        <stat.icon className="w-6 h-6" />
+                      <div className={`${stat.color} w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center mb-4 text-white shadow-lg shadow-current/20`}>
+                        <stat.icon className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
-                      <p className="text-sm font-medium text-gray-400 mb-1">{stat.label}</p>
-                      <p className="text-2xl font-black text-slate-800">{stat.value}</p>
+                      <p className="text-xs sm:text-sm font-medium text-gray-400 mb-1">{stat.label}</p>
+                      <p className="text-xl sm:text-2xl font-black text-slate-800">{stat.value}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+                  <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-gray-100">
                     <h3 className="text-lg font-bold text-slate-800 mb-6">Condomínios Recentes</h3>
                     <div className="space-y-4">
                       {condos.slice(0, 5).map((c) => (
-                        <div key={c.id} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                        <div key={c.id} className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-gray-50">
+                          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white flex items-center justify-center shadow-sm flex-shrink-0">
                               <Building2 className="w-5 h-5 text-blue-500" />
                             </div>
-                            <div>
-                              <p className="font-bold text-slate-800">{c.name}</p>
-                              <p className="text-xs text-gray-400">{c.city} • {c.units} unidades</p>
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 text-sm sm:text-base truncate">{c.name}</p>
+                              <p className="text-[10px] sm:text-xs text-gray-400 truncate">{c.city} • {c.units} unidades</p>
                             </div>
                           </div>
-                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full ${c.subscriptionStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full flex-shrink-0 ${c.subscriptionStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                             {c.subscriptionStatus}
                           </span>
                         </div>
@@ -2073,6 +2103,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#00323d' });
 
   useEffect(() => {
@@ -2294,6 +2325,27 @@ export default function App() {
     }
   };
 
+  const handleResetPassword = async (email: string) => {
+    if (!email) {
+      alert("Por favor, informe seu e-mail.");
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert("E-mail de redefinição enviado! Verifique sua caixa de entrada.");
+      setIsResettingPassword(false);
+    } catch (error: any) {
+      console.error("Erro ao resetar senha:", error);
+      let msg = "Erro ao enviar e-mail de redefinição.";
+      if (error.code === 'auth/user-not-found') {
+        msg = "Usuário não encontrado com este e-mail.";
+      } else if (error.code === 'auth/invalid-email') {
+        msg = "E-mail inválido.";
+      }
+      alert(msg + "\n\nDetalhes: " + error.message);
+    }
+  };
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -2333,98 +2385,146 @@ export default function App() {
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
                 <h3 className="text-xl font-bold text-slate-800">
-                  {isRegistering ? 'Criar Conta no CondoPro' : 'Entrar no CondoPro'}
+                  {isResettingPassword ? 'Redefinir Senha' : isRegistering ? 'Criar Conta no CondoPro' : 'Entrar no CondoPro'}
                 </h3>
-                <button onClick={() => setShowLoginModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                <button onClick={() => {
+                  setShowLoginModal(false);
+                  setIsResettingPassword(false);
+                }} className="p-2 hover:bg-gray-100 rounded-full">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="p-8 space-y-6">
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  if (isRegistering) {
-                    handleSignUp(
-                      formData.get('email') as string, 
-                      formData.get('password') as string,
-                      formData.get('name') as string
-                    );
-                  } else {
-                    handleEmailLogin(
-                      formData.get('identifier') as string, 
-                      formData.get('password') as string
-                    );
-                  }
-                }} className="space-y-4">
-                  {isRegistering && (
+                {isResettingPassword ? (
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    handleResetPassword(formData.get('email') as string);
+                  }} className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
                       <input 
-                        name="name"
-                        type="text" 
+                        name="email"
+                        type="email" 
                         required
-                        placeholder="Seu nome" 
+                        placeholder="seu@email.com" 
                         className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                       />
                     </div>
-                  )}
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      {isRegistering ? 'Email' : 'Email, CPF ou Login'}
-                    </label>
-                    <input 
-                      name={isRegistering ? "email" : "identifier"}
-                      type={isRegistering ? "email" : "text"} 
-                      required
-                      placeholder={isRegistering ? "seu@email.com" : "Seu identificador"} 
-                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Senha</label>
-                    <input 
-                      name="password"
-                      type="password" 
-                      required
-                      placeholder="••••••••" 
-                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-                    />
-                  </div>
-                  <button 
-                    type="submit"
-                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
-                  >
-                    {isRegistering ? 'Cadastrar' : 'Entrar'}
-                  </button>
-                </form>
-
-                {!isRegistering && (
-                  <>
-                    <div className="relative flex items-center justify-center">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-gray-100"></div>
-                      </div>
-                      <span className="relative px-4 bg-white text-xs font-bold text-gray-400 uppercase tracking-widest">Ou</span>
-                    </div>
-
                     <button 
-                      onClick={handleLogin}
-                      className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+                      type="submit"
+                      className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
                     >
-                      <Smartphone className="w-5 h-5" /> Entrar com Google
+                      Enviar E-mail de Redefinição
                     </button>
+                    <button 
+                      type="button"
+                      onClick={() => setIsResettingPassword(false)}
+                      className="w-full text-sm font-bold text-gray-400 hover:text-slate-600 transition-colors"
+                    >
+                      Voltar para o Login
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.currentTarget);
+                      if (isRegistering) {
+                        handleSignUp(
+                          formData.get('email') as string, 
+                          formData.get('password') as string,
+                          formData.get('name') as string
+                        );
+                      } else {
+                        handleEmailLogin(
+                          formData.get('identifier') as string, 
+                          formData.get('password') as string
+                        );
+                      }
+                    }} className="space-y-4">
+                      {isRegistering && (
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                          <input 
+                            name="name"
+                            type="text" 
+                            required
+                            placeholder="Seu nome" 
+                            className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                          {isRegistering ? 'Email' : 'Email, CPF ou Login'}
+                        </label>
+                        <input 
+                          name={isRegistering ? "email" : "identifier"}
+                          type={isRegistering ? "email" : "text"} 
+                          required
+                          placeholder={isRegistering ? "seu@email.com" : "Seu identificador"} 
+                          className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Senha</label>
+                          {!isRegistering && (
+                            <button 
+                              type="button"
+                              onClick={() => setIsResettingPassword(true)}
+                              className="text-xs font-bold text-blue-600 hover:underline"
+                            >
+                              Esqueceu a senha?
+                            </button>
+                          )}
+                        </div>
+                        <input 
+                          name="password"
+                          type="password" 
+                          required
+                          placeholder="••••••••" 
+                          className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                        />
+                      </div>
+                      <button 
+                        type="submit"
+                        className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                      >
+                        {isRegistering ? 'Cadastrar' : 'Entrar'}
+                      </button>
+                    </form>
+
+                    {!isRegistering && (
+                      <>
+                        <div className="relative flex items-center justify-center">
+                          <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-100"></div>
+                          </div>
+                          <span className="relative px-4 bg-white text-xs font-bold text-gray-400 uppercase tracking-widest">Ou</span>
+                        </div>
+
+                        <button 
+                          onClick={handleLogin}
+                          className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+                        >
+                          <Smartphone className="w-5 h-5" /> Entrar com Google
+                        </button>
+                      </>
+                    )}
+                    
+                    <p className="text-center text-xs text-gray-400">
+                      {isRegistering ? 'Já tem conta?' : 'Ainda não tem conta?'} {' '}
+                      <button 
+                        onClick={() => setIsRegistering(!isRegistering)}
+                        className="text-blue-600 font-bold hover:underline"
+                      >
+                        {isRegistering ? 'Faça Login' : 'Cadastre-se'}
+                      </button>
+                    </p>
                   </>
                 )}
-                
-                <p className="text-center text-xs text-gray-400">
-                  {isRegistering ? 'Já tem conta?' : 'Ainda não tem conta?'} {' '}
-                  <button 
-                    onClick={() => setIsRegistering(!isRegistering)}
-                    className="text-blue-600 font-bold hover:underline"
-                  >
-                    {isRegistering ? 'Faça Login' : 'Cadastre-se'}
-                  </button>
-                </p>
               </div>
             </motion.div>
           </div>
