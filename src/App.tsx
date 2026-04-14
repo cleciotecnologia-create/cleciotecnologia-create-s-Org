@@ -2168,6 +2168,7 @@ export default function App() {
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        console.log("O estado de autenticação mudou: Usuário logado", firebaseUser.uid);
         const userRef = doc(db, 'users', firebaseUser.uid);
         const userSnap = await getDoc(userRef);
         
@@ -2203,6 +2204,7 @@ export default function App() {
           }
         }
       } else {
+        console.log("O estado de autenticação mudou: Usuário deslogado");
         setUser(null);
       }
       setIsAuthReady(true);
@@ -2213,31 +2215,49 @@ export default function App() {
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-      prompt: 'select_account'
-    });
+    // Esta linha garante que o usuário sempre terá a opção de escolher uma conta Google
+    provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
       setShowLoginModal(false);
+      
+      if (result.user) {
+        console.log("Usuário logado com sucesso:", result.user.displayName);
+      }
     } catch (error: any) {
       console.error("Erro detalhado no login:", error);
       
-      let errorMessage = "Ocorreu um erro ao tentar entrar com o Google.";
+      let userMessage = "Ocorreu um erro desconhecido durante o login. Por favor, tente novamente.";
       
-      if (error.code === 'auth/popup-blocked') {
-        errorMessage = "O popup de login foi bloqueado pelo seu navegador. Por favor, permita popups para este site.";
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        errorMessage = "A janela de login foi fechada antes de completar a autenticação.";
-      } else if (error.code === 'auth/unauthorized-domain') {
-        errorMessage = `Este domínio (${window.location.hostname}) não está autorizado no Firebase.\n\nPara corrigir:\n1. Vá ao Console do Firebase\n2. Autenticação > Configurações > Domínios Autorizados\n3. Adicione "${window.location.hostname}"`;
-      } else if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = "O login com Google não está ativado no seu projeto Firebase. Ative-o em Autenticação > Provedores de Login.";
-      } else if (error.code === 'auth/internal-error') {
-        errorMessage = "Erro interno do Firebase Auth. Isso geralmente acontece quando:\n1. O provedor Google não está ativado no Console Firebase.\n2. O 'E-mail de suporte' não foi configurado nas Configurações do Projeto.\n3. Há um problema de rede ou cookies de terceiros bloqueados.";
+      switch (error.code) {
+        case 'auth/popup-closed-by-user':
+          userMessage = "O pop-up de login foi fechado. Por favor, tente novamente.";
+          break;
+        case 'auth/cancelled-popup-request':
+          userMessage = "Múltiplas operações de pop-up foram acionadas. Por favor, tente novamente com calma.";
+          break;
+        case 'auth/popup-blocked':
+          userMessage = "O pop-up de login foi bloqueado pelo seu navegador. Por favor, desabilite o bloqueador de pop-ups e tente novamente.";
+          break;
+        case 'auth/operation-not-allowed':
+          userMessage = "A autenticação com Google não está ativada no seu projeto Firebase. Ative-o em Autenticação > Provedores de Login.";
+          break;
+        case 'auth/unauthorized-domain':
+          userMessage = `Este domínio (${window.location.hostname}) não está autorizado no Firebase.\n\nPara corrigir:\n1. Vá ao Console do Firebase\n2. Autenticação > Configurações > Domínios Autorizados\n3. Adicione "${window.location.hostname}"`;
+          break;
+        case 'auth/account-exists-with-different-credential':
+          userMessage = `Já existe uma conta com este e-mail (${error.email}). Por favor, faça login com o provedor original ou linke as contas.`;
+          break;
+        case 'auth/internal-error':
+          userMessage = "Erro interno do Firebase Auth. Isso geralmente acontece quando:\n1. O provedor Google não está ativado.\n2. O 'E-mail de suporte' não foi configurado.\n3. Há um problema de rede ou cookies bloqueados.";
+          break;
+        default:
+          userMessage = `Erro de autenticação: ${error.message || error.code}`;
+          break;
       }
       
-      alert(errorMessage + "\n\nDetalhes: " + (error.message || error.code));
+      alert(userMessage);
     }
   };
 
