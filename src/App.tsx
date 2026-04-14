@@ -2156,6 +2156,8 @@ export default function App() {
       if (snap.exists()) {
         setAppSettings(snap.data() as any);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/global');
     });
     return () => unsubSettings();
   }, []);
@@ -2217,38 +2219,41 @@ export default function App() {
       if (firebaseUser) {
         console.log("O estado de autenticação mudou: Usuário logado", firebaseUser.uid);
         const userRef = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          setUser({ id: firebaseUser.uid, ...userSnap.data() } as AppUser);
-        } else {
-          // Check if there's a placeholder user from handleAddResident/handleAddUser
-          const placeholderQuery = query(collection(db, 'users'), where('email', '==', firebaseUser.email), limit(1));
-          const placeholderSnap = await getDocs(placeholderQuery);
+        try {
+          const userSnap = await getDoc(userRef);
           
-          if (!placeholderSnap.empty && placeholderSnap.docs[0].id !== firebaseUser.uid) {
-            const existingData = placeholderSnap.docs[0].data() as AppUser;
-            const newUser: AppUser = {
-              ...existingData,
-              id: firebaseUser.uid,
-              name: firebaseUser.displayName || existingData.name,
-              createdAt: existingData.createdAt || new Date().toISOString()
-            };
-            await setDoc(userRef, newUser);
-            // We could delete the placeholder here, but it's safer to just leave it or handle it carefully
-            setUser(newUser);
+          if (userSnap.exists()) {
+            setUser({ id: firebaseUser.uid, ...userSnap.data() } as AppUser);
           } else {
-            // Create initial profile if it doesn't exist
-            const isSuperAdmin = firebaseUser.email === 'cleciotecnologia@gmail.com';
-            const newUser: AppUser = {
-              id: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'Usuário',
-              role: isSuperAdmin ? 'SUPER_ADMIN' : 'RESIDENT', // Default for first login
-            };
-            await setDoc(userRef, newUser);
-            setUser(newUser);
+            // Check if there's a placeholder user from handleAddResident/handleAddUser
+            const placeholderQuery = query(collection(db, 'users'), where('email', '==', firebaseUser.email), limit(1));
+            const placeholderSnap = await getDocs(placeholderQuery);
+            
+            if (!placeholderSnap.empty && placeholderSnap.docs[0].id !== firebaseUser.uid) {
+              const existingData = placeholderSnap.docs[0].data() as AppUser;
+              const newUser: AppUser = {
+                ...existingData,
+                id: firebaseUser.uid,
+                name: firebaseUser.displayName || existingData.name,
+                createdAt: existingData.createdAt || new Date().toISOString()
+              };
+              await setDoc(userRef, newUser);
+              setUser(newUser);
+            } else {
+              // Create initial profile if it doesn't exist
+              const isSuperAdmin = firebaseUser.email === 'cleciotecnologia@gmail.com';
+              const newUser: AppUser = {
+                id: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || 'Usuário',
+                role: isSuperAdmin ? 'SUPER_ADMIN' : 'RESIDENT', // Default for first login
+              };
+              await setDoc(userRef, newUser);
+              setUser(newUser);
+            }
           }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
         }
       } else {
         console.log("O estado de autenticação mudou: Usuário deslogado");
@@ -2276,6 +2281,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Erro detalhado no login:", error);
       
+      if (error.code === 'auth/firebase-app-check-token-is-invalid') {
+        console.error("App Check error detected. This might be due to environment restrictions.");
+      }
+
       let userMessage = "Ocorreu um erro desconhecido durante o login. Por favor, tente novamente.";
       
       switch (error.code) {
