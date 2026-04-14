@@ -29,6 +29,7 @@ export interface Resident {
   condoId: string;
   name: string;
   unit: string;
+  block?: string;
   email: string;
   phone: string;
   cpf?: string;

@@ -293,7 +293,17 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
-  const [newResident, setNewResident] = useState({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [newResident, setNewResident] = useState({ 
+    name: '', 
+    email: '', 
+    unit: '', 
+    block: '',
+    phone: '', 
+    cpf: '', 
+    login: '',
+    status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE'
+  });
 
   useEffect(() => {
     if (!user.condoId) return;
@@ -347,6 +357,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       alert("Nome e Email são obrigatórios.");
       return;
     }
+    setIsLoading(true);
     try {
       const residentRef = doc(collection(db, 'condos', user.condoId, 'residents'));
       const residentData: Resident = {
@@ -354,11 +365,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
         condoId: user.condoId,
         name: newResident.name,
         unit: newResident.unit,
+        block: newResident.block,
         email: newResident.email,
         phone: newResident.phone,
         cpf: newResident.cpf,
         login: newResident.login,
-        status: 'ACTIVE'
+        status: newResident.status
       };
       await setDoc(residentRef, residentData);
 
@@ -375,12 +387,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       };
       await setDoc(userRef, userData);
 
-      await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}`);
+      await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}${newResident.block ? `, Bloco: ${newResident.block}` : ''}`);
 
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', phone: '', cpf: '', login: '' });
+      setNewResident({ name: '', email: '', unit: '', block: '', phone: '', cpf: '', login: '', status: 'ACTIVE' });
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/residents`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1257,10 +1271,22 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                       type="text" 
                       value={newResident.unit}
                       onChange={(e) => setNewResident({...newResident, unit: e.target.value})}
-                      placeholder="Ex: 101A" 
+                      placeholder="Ex: 101" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Bloco / Torre</label>
+                    <input 
+                      type="text" 
+                      value={newResident.block}
+                      onChange={(e) => setNewResident({...newResident, block: e.target.value})}
+                      placeholder="Ex: Bloco A" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Telefone</label>
                     <input 
@@ -1270,6 +1296,17 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                       placeholder="(00) 00000-0000" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Status</label>
+                    <select 
+                      value={newResident.status}
+                      onChange={(e) => setNewResident({...newResident, status: e.target.value as 'ACTIVE' | 'INACTIVE'})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="ACTIVE">Ativo</option>
+                      <option value="INACTIVE">Inativo</option>
+                    </select>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1306,9 +1343,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                 </div>
                 <button 
                   onClick={handleAddResident}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                  disabled={isLoading}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Criar Morador
+                  {isLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processando...
+                    </>
+                  ) : 'Criar Morador'}
                 </button>
               </div>
             </motion.div>
@@ -2104,6 +2147,7 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#00323d' });
 
   useEffect(() => {
@@ -2158,9 +2202,12 @@ export default function App() {
     async function testConnection() {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
+        console.log("✅ Conexão com Firebase Firestore estabelecida com sucesso!");
       } catch (error) {
         if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+          console.error("❌ Erro de conexão: O cliente está offline. Verifique sua configuração do Firebase.");
+        } else {
+          console.log("ℹ️ Teste de conexão inicial concluído (pode requerer autenticação para acesso total).");
         }
       }
     }
@@ -2218,6 +2265,7 @@ export default function App() {
     // Esta linha garante que o usuário sempre terá a opção de escolher uma conta Google
     provider.setCustomParameters({ prompt: 'select_account' });
 
+    setIsLoading(true);
     try {
       const result = await signInWithPopup(auth, provider);
       setShowLoginModal(false);
@@ -2258,10 +2306,13 @@ export default function App() {
       }
       
       alert(userMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleEmailLogin = async (identifier: string, password: string) => {
+    setIsLoading(true);
     try {
       let email = identifier;
       
@@ -2294,10 +2345,13 @@ export default function App() {
         msg = "Email inválido.";
       }
       alert(msg);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSignUp = async (email: string, pass: string, name: string) => {
+    setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
       // Update profile name
@@ -2317,8 +2371,6 @@ export default function App() {
           name: name || existingData.name,
           createdAt: new Date().toISOString()
         };
-        // Delete placeholder
-        // await deleteDoc(placeholderSnap.docs[0].ref); // We'll handle this in onAuthStateChanged or here
       } else {
         userData = {
           id: userCredential.user.uid,
@@ -2334,6 +2386,8 @@ export default function App() {
     } catch (error: any) {
       console.error("Erro no cadastro:", error);
       alert("Erro ao criar conta: " + error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -2350,6 +2404,7 @@ export default function App() {
       alert("Por favor, informe seu e-mail.");
       return;
     }
+    setIsLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
       alert("E-mail de redefinição enviado! Verifique sua caixa de entrada.");
@@ -2363,13 +2418,38 @@ export default function App() {
         msg = "E-mail inválido.";
       }
       alert(msg + "\n\nDetalhes: " + error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative"
+        >
+          <div className="w-24 h-24 rounded-[2rem] bg-blue-600/10 flex items-center justify-center mb-8">
+            <Building2 className="w-12 h-12 text-blue-600" />
+          </div>
+          <div className="absolute -top-2 -right-2">
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center animate-bounce">
+              <Sparkles className="w-4 h-4 text-white" />
+            </div>
+          </div>
+        </motion.div>
+        
+        <div className="space-y-4 text-center">
+          <h2 className="text-2xl font-bold text-slate-800">CondoPro</h2>
+          <div className="flex items-center gap-2 justify-center">
+            <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse [animation-delay:0.2s]" />
+            <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse [animation-delay:0.4s]" />
+          </div>
+          <p className="text-slate-400 font-medium text-sm">Carregando sua experiência...</p>
+        </div>
       </div>
     );
   }
@@ -2433,9 +2513,15 @@ export default function App() {
                     </div>
                     <button 
                       type="submit"
-                      className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                      disabled={isLoading}
+                      className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      Enviar E-mail de Redefinição
+                      {isLoading ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Processando...
+                        </>
+                      ) : 'Enviar E-mail de Redefinição'}
                     </button>
                     <button 
                       type="button"
@@ -2510,9 +2596,15 @@ export default function App() {
                       </div>
                       <button 
                         type="submit"
-                        className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                        disabled={isLoading}
+                        className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        {isRegistering ? 'Cadastrar' : 'Entrar'}
+                        {isLoading ? (
+                          <>
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            {isRegistering ? 'Cadastrando...' : 'Entrando...'}
+                          </>
+                        ) : (isRegistering ? 'Cadastrar' : 'Entrar')}
                       </button>
                     </form>
 
@@ -2527,9 +2619,13 @@ export default function App() {
 
                         <button 
                           onClick={handleLogin}
-                          className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+                          disabled={isLoading}
+                          className="w-full py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-gray-50 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                         >
-                          <Smartphone className="w-5 h-5" /> Entrar com Google
+                          {isLoading ? (
+                            <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+                          ) : <Smartphone className="w-5 h-5" />} 
+                          {isLoading ? 'Conectando...' : 'Entrar com Google'}
                         </button>
                       </>
                     )}

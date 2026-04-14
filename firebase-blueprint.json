@@ -42,6 +42,7 @@
         "condoId": { "type": "string" },
         "name": { "type": "string" },
         "unit": { "type": "string" },
+        "block": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
         "cpf": { "type": "string" },

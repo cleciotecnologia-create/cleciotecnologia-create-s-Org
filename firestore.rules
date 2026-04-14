@@ -38,6 +38,7 @@ service cloud.firestore {
     //   - condoId: string (required)
     //   - name: string (required, size 1-100)
     //   - unit: string (required)
+    //   - block: string (optional)
     //   - email: string (optional, email format)
     //   - phone: string (optional)
     //   - status: string (required, enum: ACTIVE, INACTIVE)
@@ -133,11 +134,12 @@ service cloud.firestore {
     }
 
     function isValidResident(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'email', 'phone', 'cpf', 'login', 'status']) &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'block', 'email', 'phone', 'cpf', 'login', 'status']) &&
              data.id is string &&
              data.condoId is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.unit is string &&
+             (!('block' in data) || (data.block is string)) &&
              (!('email' in data) || isValidEmail(data.email)) &&
              (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
              (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
