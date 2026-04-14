@@ -2328,7 +2328,15 @@ export default function App() {
           const userSnap = await getDoc(userRef);
           
           if (userSnap.exists()) {
-            setUser({ id: firebaseUser.uid, ...userSnap.data() } as AppUser);
+            const data = userSnap.data() as AppUser;
+            // Force SUPER_ADMIN role for the bootstrap email
+            if (firebaseUser.email === 'cleciotecnologia@gmail.com' && data.role !== 'SUPER_ADMIN') {
+              const updatedUser = { ...data, role: 'SUPER_ADMIN' as const };
+              await setDoc(userRef, updatedUser, { merge: true });
+              setUser({ id: firebaseUser.uid, ...updatedUser });
+            } else {
+              setUser({ id: firebaseUser.uid, ...data });
+            }
           } else {
             // Check if there's a placeholder user from handleAddResident/handleAddUser
             const placeholderQuery = query(collection(db, 'users'), where('email', '==', firebaseUser.email), limit(1));
