@@ -2440,20 +2440,28 @@ export default function App() {
       
       // If not an email, search by CPF or Login
       if (!identifier.includes('@')) {
+        let foundEmail = '';
         // Search by CPF
         const cpfQuery = query(collection(db, 'users'), where('cpf', '==', identifier), limit(1));
         const cpfSnap = await getDocs(cpfQuery);
         
         if (!cpfSnap.empty) {
-          email = cpfSnap.docs[0].data().email;
+          foundEmail = cpfSnap.docs[0].data().email;
         } else {
           // Search by Login
           const loginQuery = query(collection(db, 'users'), where('login', '==', identifier), limit(1));
           const loginSnap = await getDocs(loginQuery);
           if (!loginSnap.empty) {
-            email = loginSnap.docs[0].data().email;
+            foundEmail = loginSnap.docs[0].data().email;
           }
         }
+
+        if (!foundEmail) {
+          alert("Usuário ou CPF não encontrado no sistema. Se você é novo, por favor, crie uma conta.");
+          setIsLoading(false);
+          return;
+        }
+        email = foundEmail;
       }
 
       await signInWithEmailAndPassword(auth, email, password);
