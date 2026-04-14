@@ -4,7 +4,7 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
-  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History
+  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -1570,6 +1570,27 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newCondo, setNewCondo] = useState({ name: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'] });
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
+  const [profileData, setProfileData] = useState({
+    name: user.name || '',
+    cpf: user.cpf || '',
+    login: user.login || '',
+    avatarUrl: user.avatarUrl || ''
+  });
+
+  const handleUpdateProfile = async () => {
+    try {
+      const userRef = doc(db, 'users', user.id);
+      await setDoc(userRef, { 
+        ...user, 
+        ...profileData 
+      }, { merge: true });
+      
+      await createAuditLog('Atualizou perfil próprio', 'CONDO', user.id, `CPF: ${profileData.cpf}`, 'global');
+      alert("Perfil atualizado com sucesso! (As mudanças serão refletidas no próximo login ou recarregamento)");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.id}`);
+    }
+  };
 
   useEffect(() => {
     if (user.role !== 'SUPER_ADMIN') return;
@@ -1668,6 +1689,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     { id: 'plans', label: 'Planos & SaaS', icon: CreditCard },
     { id: 'audit', label: 'Auditoria', icon: History },
     { id: 'settings', label: 'Configurações', icon: Settings },
+    { id: 'profile', label: 'Meu Perfil', icon: UserIcon },
   ];
 
   const stats = [
@@ -1906,6 +1928,89 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'profile' && (
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="max-w-2xl mx-auto">
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                  <div className="flex items-center gap-6 mb-8">
+                    <div className="w-24 h-24 rounded-3xl bg-orange-100 flex items-center justify-center text-orange-600 text-3xl font-black shadow-lg shadow-orange-200/50">
+                      {profileData.avatarUrl ? (
+                        <img src={profileData.avatarUrl} alt="Avatar" className="w-full h-full object-cover rounded-3xl" referrerPolicy="no-referrer" />
+                      ) : (
+                        user.name.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-800">Meu Perfil</h3>
+                      <p className="text-slate-400 font-medium">Gerencie suas informações pessoais</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo</label>
+                        <input 
+                          type="text" 
+                          value={profileData.name}
+                          onChange={(e) => setProfileData({...profileData, name: e.target.value})}
+                          className="w-full bg-slate-50 border-none rounded-2xl p-4 text-slate-800 font-bold focus:ring-2 focus:ring-orange-500 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">E-mail (Não editável)</label>
+                        <input 
+                          type="email" 
+                          value={user.email}
+                          disabled
+                          className="w-full bg-slate-100 border-none rounded-2xl p-4 text-slate-400 font-bold cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">CPF</label>
+                        <input 
+                          type="text" 
+                          placeholder="000.000.000-00"
+                          value={profileData.cpf}
+                          onChange={(e) => setProfileData({...profileData, cpf: e.target.value})}
+                          className="w-full bg-slate-50 border-none rounded-2xl p-4 text-slate-800 font-bold focus:ring-2 focus:ring-orange-500 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Login / Usuário</label>
+                        <input 
+                          type="text" 
+                          value={profileData.login}
+                          onChange={(e) => setProfileData({...profileData, login: e.target.value})}
+                          className="w-full bg-slate-50 border-none rounded-2xl p-4 text-slate-800 font-bold focus:ring-2 focus:ring-orange-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">URL do Avatar</label>
+                      <input 
+                        type="text" 
+                        placeholder="https://exemplo.com/foto.jpg"
+                        value={profileData.avatarUrl}
+                        onChange={(e) => setProfileData({...profileData, avatarUrl: e.target.value})}
+                        className="w-full bg-slate-50 border-none rounded-2xl p-4 text-slate-800 font-bold focus:ring-2 focus:ring-orange-500 transition-all"
+                      />
+                    </div>
+
+                    <button 
+                      onClick={handleUpdateProfile}
+                      className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl shadow-xl shadow-slate-200 hover:bg-slate-800 transition-all mt-4"
+                    >
+                      Salvar Alterações
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}
