@@ -316,6 +316,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'CARD'>('PIX');
   const [showVisitorModal, setShowVisitorModal] = useState(false);
+  const [showQRPreview, setShowQRPreview] = useState(false);
   const [selectedVisitorForQR, setSelectedVisitorForQR] = useState<any>(null);
   const [selectedPackageForQR, setSelectedPackageForQR] = useState<Package | null>(null);
   const [visitorRequests, setVisitorRequests] = useState([
@@ -373,6 +374,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     let unsubResidents = () => {};
     if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
       unsubResidents = onSnapshot(residentsRef, (snap) => {
+        setResidents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Resident)));
+      }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residents`));
+    } else if (user.role === 'RESIDENT') {
+      const q = query(residentsRef, where('email', '==', user.email));
+      unsubResidents = onSnapshot(q, (snap) => {
         setResidents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Resident)));
       }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residents`));
     }
@@ -741,6 +747,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       await createAuditLog('Autorizou novo visitante', 'VISITOR', visitorRef.id, `Visitante: ${newVisitor.name}, Tipo: ${newVisitor.type}`);
       
       setShowVisitorModal(false);
+      setShowQRPreview(false);
       setNewVisitor({ name: '', type: 'VISITOR', validUntil: '' });
       alert("Autorização gerada com sucesso!");
     } catch (err) {
@@ -3068,7 +3075,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
-              onClick={() => setShowVisitorModal(false)}
+              onClick={() => {
+                setShowVisitorModal(false);
+                setShowQRPreview(false);
+              }}
               className="absolute inset-0 bg-primary/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -3079,7 +3089,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
                 <h3 className="text-xl font-bold text-primary">Nova Autorização</h3>
-                <button onClick={() => setShowVisitorModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                <button onClick={() => {
+                  setShowVisitorModal(false);
+                  setShowQRPreview(false);
+                }} className="p-2 hover:bg-gray-100 rounded-full">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -3124,10 +3137,53 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <QrCode className="w-5 h-5" /> Gerar Convite Digital
+                      <CheckCircle2 className="w-5 h-5" /> Autorizar e Salvar
                     </>
                   )}
                 </button>
+
+                <button 
+                  onClick={() => {
+                    if (!newVisitor.name || !newVisitor.validUntil) {
+                      alert("Preencha o nome e a validade para gerar o QR Code.");
+                      return;
+                    }
+                    setShowQRPreview(!showQRPreview);
+                  }}
+                  className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-gray-200 transition-all mt-2"
+                >
+                  <QrCode className="w-5 h-5" /> 
+                  {showQRPreview ? 'Ocultar QR Code' : 'Gerar e Exibir QR Code'}
+                </button>
+
+                <AnimatePresence>
+                  {showQRPreview && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="pt-4 flex flex-col items-center space-y-4">
+                        <div className="p-4 bg-white border-2 border-dashed border-gray-100 rounded-3xl shadow-sm">
+                          <QRCodeSVG 
+                            value={JSON.stringify({
+                              name: newVisitor.name,
+                              type: newVisitor.type,
+                              validUntil: newVisitor.validUntil,
+                              unit: residents.find(r => r.email === user.email)?.unit || 'N/A'
+                            })}
+                            size={180}
+                            level="H"
+                          />
+                        </div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
+                          Apresente este código na portaria para autorização
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           </div>
