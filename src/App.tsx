@@ -4,7 +4,7 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
-  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
+  ArrowRight, ArrowLeft, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
   Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
@@ -3303,29 +3303,34 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   if (managedCondoId) {
     const managedCondo = condos.find(c => c.id === managedCondoId);
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="bg-slate-900 text-white p-4 flex justify-between items-center sticky top-0 z-50">
+      <div className="fixed inset-0 z-[60] bg-gray-50 flex flex-col">
+        <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setManagedCondoId(null)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2"
+              className="p-2 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2 font-bold text-sm"
             >
-              <ArrowRight className="w-5 h-5 rotate-180" /> Voltar ao Painel Geral
+              <ArrowLeft className="w-5 h-5" /> Sair do Modo Gerenciamento
             </button>
             <div className="h-6 w-px bg-white/20" />
-            <h2 className="font-bold">Gerenciando: <span className="text-blue-400">{managedCondo?.name}</span></h2>
+            <h2 className="font-bold flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-blue-400" />
+              Gerenciando: <span className="text-blue-400">{managedCondo?.name}</span>
+            </h2>
           </div>
-          <div className="flex items-center gap-2 text-xs font-medium text-white/60">
-            <Shield className="w-4 h-4" /> MODO SUPER ADMIN
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white/60 bg-white/5 py-1.5 px-3 rounded-full border border-white/10">
+            <Shield className="w-3 h-3" /> Modo Super Admin
           </div>
         </div>
-        <Dashboard 
-          user={{ ...user, role: 'CONDO_ADMIN', condoId: managedCondoId }} 
-          onLogout={onLogout} 
-          appSettings={appSettings} 
-          createAuditLog={createAuditLog} 
-          plans={plans}
-        />
+        <div className="flex-grow overflow-hidden relative">
+          <Dashboard 
+            user={{ ...user, role: 'CONDO_ADMIN', condoId: managedCondoId }} 
+            onLogout={onLogout} 
+            appSettings={appSettings} 
+            createAuditLog={createAuditLog} 
+            plans={plans}
+          />
+        </div>
       </div>
     );
   }
@@ -3540,22 +3545,29 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             </select>
                           </td>
                           <td className="px-8 py-4">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-3">
                               <button 
-                                onClick={() => setManagedCondoId(c.id)}
-                                className="text-blue-600 hover:underline text-sm font-bold"
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setManagedCondoId(c.id);
+                                }}
+                                className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
                               >
+                                <LayoutDashboard className="w-3 h-3 group-hover:scale-110 transition-transform" />
                                 Gerenciar
                               </button>
                               <button 
+                                type="button"
                                 onClick={() => {
                                   if (window.confirm("Deseja realmente excluir este condomínio?")) {
                                     // Implementation for delete if needed
                                   }
                                 }}
-                                className="text-red-400 hover:text-red-600"
+                                className="p-2 hover:bg-red-50 text-red-300 hover:text-red-500 rounded-xl transition-all"
+                                title="Excluir Condomínio"
                               >
-                                <X className="w-4 h-4" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
