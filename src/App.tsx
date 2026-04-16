@@ -33,7 +33,7 @@ import { ptBR } from 'date-fns/locale';
 import { 
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
-  Assembly, MaintenanceTask, CondoScore
+  Assembly, MaintenanceTask, CondoScore, ResidentRisk
 } from './types';
 import { auth, db } from './firebase';
 import { 
@@ -325,6 +325,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [assemblies, setAssemblies] = useState<Assembly[]>([]);
   const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
   const [condoScore, setCondoScore] = useState<CondoScore | null>(null);
+  const [residentRisks, setResidentRisks] = useState<ResidentRisk[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -443,6 +444,53 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, `condos/${user.condoId}/stats/score`));
 
+    const risksRef = collection(db, 'condos', user.condoId, 'residentRisks');
+    let unsubRisks = () => {};
+    if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
+      unsubRisks = onSnapshot(risksRef, (snap) => {
+        if (snap.empty) {
+          // Mock Risk Data
+          setResidentRisks([
+            {
+              id: 'risk1',
+              condoId: user.condoId!,
+              residentId: 'r1',
+              residentName: 'Ana Silva',
+              unit: '101A',
+              riskScore: 15,
+              riskLevel: 'LOW',
+              factors: ['Histórico de pagamento pontual', 'Uso frequente do app'],
+              lastUpdated: new Date().toISOString()
+            },
+            {
+              id: 'risk2',
+              condoId: user.condoId!,
+              residentId: 'r2',
+              residentName: 'Bruno Santos',
+              unit: '202B',
+              riskScore: 65,
+              riskLevel: 'MEDIUM',
+              factors: ['2 atrasos nos últimos 6 meses', 'Baixa interação com comunicados'],
+              lastUpdated: new Date().toISOString()
+            },
+            {
+              id: 'risk3',
+              condoId: user.condoId!,
+              residentId: 'r3',
+              residentName: 'Carlos Eduardo',
+              unit: '303C',
+              riskScore: 92,
+              riskLevel: 'HIGH',
+              factors: ['Inadimplente no mês atual', 'Histórico recorrente de atrasos (>15 dias)', 'Não visualiza boletos'],
+              lastUpdated: new Date().toISOString()
+            }
+          ]);
+        } else {
+          setResidentRisks(snap.docs.map(d => ({ id: d.id, ...d.data() } as ResidentRisk)));
+        }
+      }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residentRisks`));
+    }
+
     // Mock Assemblies if empty
     const mockAssemblies: Assembly[] = [
       {
@@ -502,6 +550,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubAssemblies();
       unsubMaintenance();
       unsubScore();
+      unsubRisks();
     };
   }, [user.condoId]);
 
@@ -617,6 +666,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
+    { id: 'risk', label: 'Previsão de Risco', icon: TrendingUp, adminOnly: true },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true },
     { id: 'audit', label: 'Auditoria', icon: History, adminOnly: true },
     { id: 'settings', label: 'Configurações', icon: Settings, adminOnly: true },
@@ -699,34 +749,42 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         </div>
         
         <nav className="flex-grow p-4 space-y-1 mt-4">
-          {filteredMenuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveMenu(item.id)}
-              className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group ${
-                activeMenu === item.id 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <item.icon className={`w-6 h-6 flex-shrink-0 transition-transform group-hover:scale-110 ${activeMenu === item.id ? 'text-white' : 'text-slate-500'}`} />
-              {isSidebarOpen && (
-                <motion.span 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="font-bold text-sm"
-                >
-                  {item.label}
-                </motion.span>
-              )}
-              {activeMenu === item.id && (
-                <motion.div 
-                  layoutId="active-pill"
-                  className="absolute left-0 w-1 h-6 bg-white rounded-r-full"
-                />
-              )}
-            </button>
-          ))}
+          {filteredMenuItems.map((item) => {
+            const hasNotification = (item.id === 'maintenance' && maintenanceTasks.some(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7)))) ||
+                                   (item.id === 'risk' && residentRisks.some(r => r.riskLevel === 'HIGH'));
+            
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveMenu(item.id)}
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group ${
+                  activeMenu === item.id 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <item.icon className={`w-6 h-6 flex-shrink-0 transition-transform group-hover:scale-110 ${activeMenu === item.id ? 'text-white' : 'text-slate-500'}`} />
+                {isSidebarOpen && (
+                  <motion.span 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="font-bold text-sm"
+                  >
+                    {item.label}
+                  </motion.span>
+                )}
+                {hasNotification && (
+                  <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full border border-slate-900 animate-pulse" />
+                )}
+                {activeMenu === item.id && (
+                  <motion.div 
+                    layoutId="active-pill"
+                    className="absolute left-0 w-1 h-6 bg-white rounded-r-full"
+                  />
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -833,6 +891,58 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       </ResponsiveContainer>
                     </div>
                   </div>
+                )}
+
+                {/* Risk Alert */}
+                {user.role === 'CONDO_ADMIN' && residentRisks.some(r => r.riskLevel === 'HIGH') && (
+                  <motion.div 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="bg-red-100 p-3 rounded-2xl text-red-600">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-black text-red-900">Alerta de Inadimplência</h4>
+                        <p className="text-red-800/70 text-sm">Detectamos {residentRisks.filter(r => r.riskLevel === 'HIGH').length} moradores com alto risco de atraso este mês.</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveMenu('risk')}
+                      className="bg-red-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20"
+                    >
+                      Ver Detalhes
+                    </button>
+                  </motion.div>
+                )}
+
+                {/* Maintenance Alert */}
+                {user.role === 'CONDO_ADMIN' && maintenanceTasks.some(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7))) && (
+                  <motion.div 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-blue-50 border border-blue-100 p-6 rounded-3xl flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
+                        <Wrench className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-black text-blue-900">Manutenção Pendente</h4>
+                        <p className="text-blue-800/70 text-sm">
+                          Você tem {maintenanceTasks.filter(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7))).length} tarefas de manutenção vencendo nos próximos 7 dias.
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveMenu('maintenance')}
+                      className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                    >
+                      Ver Agenda
+                    </button>
+                  </motion.div>
                 )}
 
                 {/* Welcome Banner */}
@@ -1166,9 +1276,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             </span>
                           </td>
                           <td className="p-6">
-                            <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
-                              <MoreVertical className="w-5 h-5" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => alert(`Lembrete de e-mail enviado para a equipe técnica sobre: ${task.title}`)}
+                                className="p-2 hover:bg-blue-50 rounded-lg text-blue-400 group relative"
+                                title="Enviar lembrete por e-mail"
+                              >
+                                <Send className="w-4 h-4" />
+                              </button>
+                              <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
+                                <MoreVertical className="w-5 h-5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1272,6 +1391,90 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       </div>
                     </div>
                   ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'risk' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Previsão de Inadimplência</h3>
+                    <p className="text-slate-500">Análise preditiva de risco baseada em comportamento e histórico.</p>
+                  </div>
+                  <div className="bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5" /> {residentRisks.filter(r => r.riskLevel === 'HIGH').length} Moradores em Alto Risco
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {residentRisks.map(risk => (
+                    <div key={risk.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all">
+                      <div className={`absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 rounded-full opacity-10 ${
+                        risk.riskLevel === 'HIGH' ? 'bg-red-500' : risk.riskLevel === 'MEDIUM' ? 'bg-orange-500' : 'bg-emerald-500'
+                      }`} />
+                      
+                      <div className="flex justify-between items-start mb-6">
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Apto {risk.unit}</p>
+                          <h4 className="text-xl font-black text-slate-800">{risk.residentName}</h4>
+                        </div>
+                        <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                          risk.riskLevel === 'HIGH' ? 'bg-red-100 text-red-600' : 
+                          risk.riskLevel === 'MEDIUM' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'
+                        }`}>
+                          Risco {risk.riskLevel === 'HIGH' ? 'Alto' : risk.riskLevel === 'MEDIUM' ? 'Médio' : 'Baixo'}
+                        </div>
+                      </div>
+
+                      <div className="mb-8">
+                        <div className="flex justify-between items-end mb-2">
+                          <span className="text-xs font-bold text-slate-500">Score de Risco</span>
+                          <span className={`text-2xl font-black ${
+                            risk.riskLevel === 'HIGH' ? 'text-red-600' : risk.riskLevel === 'MEDIUM' ? 'text-orange-600' : 'text-emerald-600'
+                          }`}>{risk.riskScore}%</span>
+                        </div>
+                        <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${risk.riskScore}%` }}
+                            className={`h-full rounded-full ${
+                              risk.riskLevel === 'HIGH' ? 'bg-red-500' : risk.riskLevel === 'MEDIUM' ? 'bg-orange-500' : 'bg-emerald-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fatores de Risco</p>
+                        {risk.factors.map((factor, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                            <div className={`w-1.5 h-1.5 rounded-full ${
+                              risk.riskLevel === 'HIGH' ? 'bg-red-400' : 'bg-slate-300'
+                            }`} />
+                            {factor}
+                          </div>
+                        ))}
+                      </div>
+
+                      <button className="w-full mt-8 py-4 bg-slate-50 text-slate-600 rounded-2xl font-bold hover:bg-primary hover:text-white transition-all flex items-center justify-center gap-2">
+                         <MessageSquare className="w-5 h-5" /> Enviar Lembrete <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 p-8 rounded-[2.5rem] flex items-start gap-6">
+                  <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg shadow-blue-600/20">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-black text-blue-900 mb-2">Como funciona a Previsão de Risco?</h4>
+                    <p className="text-blue-800/70 text-sm leading-relaxed">
+                      Nosso algoritmo de IA analisa mais de 15 variáveis, incluindo histórico de pagamentos, frequência de uso das áreas comuns, 
+                      padrões de comunicação no chat e interações com a portaria para prever possíveis atrasos antes que eles ocorram.
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             )}

@@ -102,7 +102,7 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
-  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR';
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE';
   resourceId?: string;
   details?: string;
   timestamp: string;
@@ -188,6 +188,18 @@ export interface Plan {
   price: number;
   maxUnits: number;
   features: string[];
+}
+
+export interface ResidentRisk {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  unit: string;
+  riskScore: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  factors: string[];
+  lastUpdated: string;
 }
 
 export const PLANS: Plan[] = [

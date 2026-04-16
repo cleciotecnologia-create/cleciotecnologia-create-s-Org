@@ -192,6 +192,23 @@
         "trends": { "type": "array" }
       },
       "required": ["condoId", "score", "delinquencyRate", "lastUpdated"]
+    },
+    "ResidentRisk": {
+      "title": "ResidentRisk",
+      "description": "Predictive risk score for a resident",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "unit": { "type": "string" },
+        "riskScore": { "type": "number" },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "factors": { "type": "array" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "residentId", "riskScore", "riskLevel", "lastUpdated"]
     }
   },
   "firestore": {
@@ -242,6 +259,10 @@
     "/condos/{condoId}/stats/score": {
       "schema": "CondoScore",
       "description": "Condo health score"
+    },
+    "/condos/{condoId}/residentRisks/{riskId}": {
+      "schema": "ResidentRisk",
+      "description": "Predictive risk scores for residents"
     }
   }
 }
