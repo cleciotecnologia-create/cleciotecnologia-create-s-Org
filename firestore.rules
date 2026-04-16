@@ -223,6 +223,22 @@ service cloud.firestore {
              data.trends is list;
     }
 
+    function isValidGasReading(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'residentName', 'unit', 'previousReading', 'currentReading', 'consumption', 'readingDate', 'billingMonth', 'status', 'unitPrice', 'totalAmount']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.unit is string &&
+             data.previousReading is number &&
+             data.currentReading is number &&
+             data.consumption is number &&
+             isValidDateString(data.readingDate) &&
+             data.billingMonth is string &&
+             data.status in ['PENDING', 'BILLED'] &&
+             data.unitPrice is number &&
+             data.totalAmount is number;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -340,6 +356,17 @@ service cloud.firestore {
     match /condos/{condoId}/stats/score {
       allow read: if isAdmin() || isCondoAdmin(condoId);
       allow write: if isAdmin(); // Only Super Admin (or backend) should update scores
+    }
+
+    match /condos/{condoId}/residentRisks/{riskId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow write: if isAdmin();
+    }
+
+    match /condos/{condoId}/gasReadings/{readingId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidGasReading(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
     match /test/{docId} {

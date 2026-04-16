@@ -177,9 +177,10 @@ export interface Invoice {
   amount: number;
   dueDate: string;
   status: 'PAID' | 'PENDING' | 'OVERDUE';
-  type: 'CONDO_FEE' | 'RESERVE_FUND' | 'EXTRA';
+  type: 'CONDO_FEE' | 'RESERVE_FUND' | 'EXTRA' | 'GAS';
   description: string;
   paymentDate?: string;
+  items?: { description: string; amount: number }[];
 }
 
 export interface Plan {
@@ -200,6 +201,22 @@ export interface ResidentRisk {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   factors: string[];
   lastUpdated: string;
+}
+
+export interface GasReading {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  unit: string;
+  previousReading: number;
+  currentReading: number;
+  consumption: number;
+  readingDate: string;
+  billingMonth: string; // YYYY-MM
+  status: 'PENDING' | 'BILLED';
+  unitPrice: number;
+  totalAmount: number;
 }
 
 export const PLANS: Plan[] = [

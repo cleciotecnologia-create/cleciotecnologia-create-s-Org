@@ -33,7 +33,7 @@ import { ptBR } from 'date-fns/locale';
 import { 
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
-  Assembly, MaintenanceTask, CondoScore, ResidentRisk
+  Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading
 } from './types';
 import { auth, db } from './firebase';
 import { 
@@ -119,7 +119,7 @@ const MOCK_OCCURRENCES: Occurrence[] = [
 
 // --- Components ---
 
-const LandingPage = ({ onLogin, onShowLoginModal, plans }: { onLogin: () => void, onShowLoginModal: () => void, plans: Plan[] }) => {
+const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogin: () => void, onShowLoginModal: () => void, plans: Plan[], appSettings: any }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
@@ -237,27 +237,32 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans }: { onLogin: () => void
             <p className="text-gray-600">Escolha a melhor opção para o tamanho do seu condomínio.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {plans.map((plan) => (
-              <div key={plan.id} className={`p-10 rounded-[2.5rem] border-2 flex flex-col ${plan.id === 'PRO' ? 'border-primary bg-primary text-white shadow-2xl shadow-primary/30 scale-105 z-10' : 'border-gray-100 bg-white text-primary'}`}>
-                {plan.id === 'PRO' && <span className="bg-white text-primary text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full w-fit mb-6">Mais Escolhido</span>}
-                <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                <div className="flex items-baseline gap-1 mb-8">
-                  <span className="text-4xl font-black">R$ {plan.price}</span>
-                  <span className={plan.id === 'PRO' ? 'text-white/60' : 'text-gray-400'}>/mês</span>
+            {plans.map((plan) => {
+              const price = appSettings.planPrices?.[plan.id] || plan.price;
+              const features = appSettings.planFeatures?.[plan.id] || plan.features;
+              
+              return (
+                <div key={plan.id} className={`p-10 rounded-[2.5rem] border-2 flex flex-col ${plan.id === 'PRO' ? 'border-primary bg-primary text-white shadow-2xl shadow-primary/30 scale-105 z-10' : 'border-gray-100 bg-white text-primary'}`}>
+                  {plan.id === 'PRO' && <span className="bg-white text-primary text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full w-fit mb-6">Mais Escolhido</span>}
+                  <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
+                  <div className="flex items-baseline gap-1 mb-8">
+                    <span className="text-4xl font-black">R$ {price}</span>
+                    <span className={plan.id === 'PRO' ? 'text-white/60' : 'text-gray-400'}>/mês</span>
+                  </div>
+                  <ul className="space-y-4 mb-10 flex-grow">
+                    {features.map((f: string, i: number) => (
+                      <li key={i} className="flex items-center gap-3 text-sm font-medium">
+                        <CheckCircle2 className={`w-5 h-5 ${plan.id === 'PRO' ? 'text-white' : 'text-primary'}`} />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <button onClick={onLogin} className={`w-full py-4 rounded-2xl font-bold transition-all ${plan.id === 'PRO' ? 'bg-white text-primary hover:bg-gray-100' : 'bg-primary text-white hover:opacity-90'}`}>
+                    Selecionar Plano
+                  </button>
                 </div>
-                <ul className="space-y-4 mb-10 flex-grow">
-                  {plan.features.map((f, i) => (
-                    <li key={i} className="flex items-center gap-3 text-sm font-medium">
-                      <CheckCircle2 className={`w-5 h-5 ${plan.id === 'PRO' ? 'text-white' : 'text-primary'}`} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <button onClick={onLogin} className={`w-full py-4 rounded-2xl font-bold transition-all ${plan.id === 'PRO' ? 'bg-white text-primary hover:bg-gray-100' : 'bg-primary text-white hover:opacity-90'}`}>
-                  Selecionar Plano
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -326,6 +331,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
   const [condoScore, setCondoScore] = useState<CondoScore | null>(null);
   const [residentRisks, setResidentRisks] = useState<ResidentRisk[]>([]);
+  const [gasReadings, setGasReadings] = useState<GasReading[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -401,7 +407,27 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       invoicesQuery = query(invoicesRef, where('residentId', '==', user.id), orderBy('dueDate', 'desc'), limit(50));
     }
     const unsubInvoices = onSnapshot(invoicesQuery, (snap) => {
-      setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
+      if (snap.empty) {
+        setInvoices([
+          {
+            id: 'inv1',
+            condoId: user.condoId!,
+            residentId: user.id,
+            amount: 637.50,
+            dueDate: format(addDays(new Date(), 10), 'yyyy-MM-dd'),
+            status: 'PENDING',
+            type: 'CONDO_FEE',
+            description: 'Taxa Condominial + Consumo de Gás',
+            items: [
+              { description: 'Taxa Condominial Base', amount: 450.00 },
+              { description: 'Fundo de Reserva (5%)', amount: 22.50 },
+              { description: 'Consumo de Gás (13 m³)', amount: 165.00 }
+            ]
+          }
+        ]);
+      } else {
+        setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
+      }
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/invoices`));
 
     const auditLogsRef = collection(db, 'condos', user.condoId, 'auditLogs');
@@ -491,6 +517,46 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/residentRisks`));
     }
 
+    const gasRef = collection(db, 'condos', user.condoId, 'gasReadings');
+    const unsubGas = onSnapshot(gasRef, (snap) => {
+      if (snap.empty) {
+        setGasReadings([
+          {
+            id: 'g1',
+            condoId: user.condoId,
+            residentId: 'r1',
+            residentName: 'Ana Silva',
+            unit: '101A',
+            previousReading: 1250,
+            currentReading: 1265,
+            consumption: 15,
+            readingDate: new Date().toISOString(),
+            billingMonth: format(new Date(), 'yyyy-MM'),
+            status: 'PENDING',
+            unitPrice: 12.50,
+            totalAmount: 187.50
+          },
+          {
+            id: 'g2',
+            condoId: user.condoId,
+            residentId: 'r2',
+            residentName: 'Bruno Santos',
+            unit: '202B',
+            previousReading: 980,
+            currentReading: 1002,
+            consumption: 22,
+            readingDate: new Date().toISOString(),
+            billingMonth: format(new Date(), 'yyyy-MM'),
+            status: 'PENDING',
+            unitPrice: 12.50,
+            totalAmount: 275.00
+          }
+        ]);
+      } else {
+        setGasReadings(snap.docs.map(d => ({ id: d.id, ...d.data() } as GasReading)));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/gasReadings`));
+
     // Mock Assemblies if empty
     const mockAssemblies: Assembly[] = [
       {
@@ -551,6 +617,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubMaintenance();
       unsubScore();
       unsubRisks();
+      unsubGas();
     };
   }, [user.condoId]);
 
@@ -665,6 +732,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'cameras', label: 'Câmeras', icon: Camera, premiumOnly: true },
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
+    { id: 'gas', label: 'Consumo de Gás', icon: Zap },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
     { id: 'risk', label: 'Previsão de Risco', icon: TrendingUp, adminOnly: true },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true },
@@ -1926,6 +1994,106 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
+            {activeMenu === 'gas' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Consumo de Gás</h3>
+                    <p className="text-slate-500">Gestão de leituras e faturamento individualizado.</p>
+                  </div>
+                  {user.role !== 'RESIDENT' && (
+                    <button 
+                      onClick={() => alert('Abrir modal de nova leitura')}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                    >
+                      <Plus className="w-5 h-5" /> Nova Leitura
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Consumo Total (Mês)</p>
+                    <p className="text-3xl font-black text-slate-800">{gasReadings.reduce((acc, curr) => acc + curr.consumption, 0)} m³</p>
+                    <p className="text-xs text-blue-600 font-bold mt-2">Média: {(gasReadings.reduce((acc, curr) => acc + curr.consumption, 0) / (gasReadings.length || 1)).toFixed(1)} m³ por unidade</p>
+                  </div>
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Valor Total</p>
+                    <p className="text-3xl font-black text-emerald-600">R$ {gasReadings.reduce((acc, curr) => acc + curr.totalAmount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xs text-gray-400 font-bold mt-2">Preço m³: R$ 12,50</p>
+                  </div>
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Leituras Pendentes</p>
+                    <p className="text-3xl font-black text-orange-500">{gasReadings.filter(r => r.status === 'PENDING').length}</p>
+                    <p className="text-xs text-orange-400 font-bold mt-2">Aguardando faturamento</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 className="text-lg font-bold text-slate-800">Histórico de Leituras</h3>
+                    <div className="flex gap-2">
+                      <button className="p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 transition-all">
+                        <Filter className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+                  </div>
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unidade / Morador</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Leitura Anterior</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Leitura Atual</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Consumo</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gasReadings.filter(r => user.role === 'RESIDENT' ? r.residentId === user.id : true).map(reading => (
+                        <tr key={reading.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                          <td className="p-6">
+                            <p className="font-bold text-slate-800">{reading.unit}</p>
+                            <p className="text-xs text-slate-400">{reading.residentName}</p>
+                          </td>
+                          <td className="p-6 text-sm font-medium text-slate-600">{reading.previousReading} m³</td>
+                          <td className="p-6 text-sm font-bold text-slate-800">{reading.currentReading} m³</td>
+                          <td className="p-6">
+                            <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-black">
+                              {reading.consumption} m³
+                            </span>
+                          </td>
+                          <td className="p-6 font-black text-slate-800">R$ {reading.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-6">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                              reading.status === 'BILLED' ? 'bg-emerald-100 text-emerald-600' : 'bg-orange-100 text-orange-600'
+                            }`}>
+                              {reading.status === 'BILLED' ? 'Faturado' : 'Pendente'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {user.role !== 'RESIDENT' && (
+                  <div className="bg-blue-600 rounded-[2.5rem] p-10 text-white flex flex-col md:flex-row items-center justify-between gap-8">
+                    <div className="space-y-2 text-center md:text-left">
+                      <h3 className="text-2xl font-black">Faturamento em Lote</h3>
+                      <p className="text-blue-100 font-medium">Deseja incluir os consumos de gás deste mês nos boletos de condomínio?</p>
+                    </div>
+                    <button 
+                      onClick={() => alert('Faturamento em lote processado! Os valores serão incluídos nos próximos boletos.')}
+                      className="bg-white text-blue-600 px-10 py-4 rounded-2xl font-black shadow-xl hover:bg-blue-50 transition-all whitespace-nowrap"
+                    >
+                      Gerar Faturamento Unificado
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
             {activeMenu === 'finance' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 {user.role !== 'RESIDENT' ? (
@@ -1983,7 +2151,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden">
                       <div className="relative z-10">
                         <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Próximo Vencimento</p>
-                        <h3 className="text-4xl font-black mb-6">R$ 450,00</h3>
+                        <h3 className="text-4xl font-black mb-6">R$ {(invoices.find(i => i.status === 'PENDING')?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
                         <div className="flex items-center gap-4">
                           <button className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20">
                             Pagar com PIX
@@ -2017,6 +2185,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                                 <div>
                                   <p className="font-bold text-slate-800">{inv.description}</p>
                                   <p className="text-xs text-slate-400">Vencimento: {new Date(inv.dueDate).toLocaleDateString()}</p>
+                                  {inv.items && (
+                                    <div className="mt-2 space-y-1">
+                                      {inv.items.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between w-48 text-[10px] text-slate-500">
+                                          <span>{item.description}</span>
+                                          <span className="font-bold">R$ {item.amount.toFixed(2)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                               <div className="text-right">
@@ -3275,15 +3453,56 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             />
                           </div>
                         </div>
-                        <div className="pt-4 border-t border-slate-200/60">
-                          <p className="text-[10px] text-slate-400 font-medium">Recursos principais:</p>
-                          <ul className="mt-2 space-y-1">
-                            {plan.features.slice(0, 3).map((f, i) => (
-                              <li key={i} className="text-[10px] text-slate-500 flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3 text-blue-500" /> {f}
-                              </li>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recursos do Plano</label>
+                          <div className="space-y-2">
+                            {(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features).map((feature: string, idx: number) => (
+                              <div key={idx} className="flex gap-2">
+                                <input 
+                                  type="text"
+                                  value={feature}
+                                  onChange={(e) => {
+                                    const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
+                                    currentFeatures[idx] = e.target.value;
+                                    const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
+                                    onUpdateSettings({ planFeatures: newFeatures });
+                                  }}
+                                  className="flex-grow px-3 py-2 bg-white rounded-lg border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-500/20"
+                                />
+                                <button 
+                                  onClick={() => {
+                                    const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
+                                    currentFeatures.splice(idx, 1);
+                                    const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
+                                    onUpdateSettings({ planFeatures: newFeatures });
+                                  }}
+                                  className="p-2 text-red-400 hover:bg-red-50 rounded-lg"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             ))}
-                          </ul>
+                            <button 
+                              onClick={() => {
+                                const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
+                                currentFeatures.push('Novo recurso');
+                                const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
+                                onUpdateSettings({ planFeatures: newFeatures });
+                              }}
+                              className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg text-xs font-bold text-slate-400 hover:border-blue-400 hover:text-blue-400 transition-all flex items-center justify-center gap-2"
+                            >
+                              <Plus className="w-3 h-3" /> Adicionar Recurso
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-200/60">
+                          <p className="text-[10px] text-slate-400 font-medium">Resumo de unidades:</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Users className="w-3 h-3 text-slate-400" />
+                            <span className="text-[10px] font-bold text-slate-600">Até {plan.maxUnits === 9999 ? 'Ilimitadas' : plan.maxUnits} unidades</span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -3936,7 +4155,7 @@ export default function App() {
           <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
         )
       ) : (
-        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} />
+        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />
       )}
 
       {/* Login Modal */}

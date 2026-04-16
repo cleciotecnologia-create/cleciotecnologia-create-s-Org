@@ -209,6 +209,27 @@
         "lastUpdated": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "condoId", "residentId", "riskScore", "riskLevel", "lastUpdated"]
+    },
+    "GasReading": {
+      "title": "GasReading",
+      "description": "Gas consumption reading for a unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "unit": { "type": "string" },
+        "previousReading": { "type": "number" },
+        "currentReading": { "type": "number" },
+        "consumption": { "type": "number" },
+        "readingDate": { "type": "string", "format": "date-time" },
+        "billingMonth": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "BILLED"] },
+        "unitPrice": { "type": "number" },
+        "totalAmount": { "type": "number" }
+      },
+      "required": ["id", "condoId", "residentId", "unit", "previousReading", "currentReading", "consumption", "readingDate", "billingMonth", "status"]
     }
   },
   "firestore": {
@@ -263,6 +284,10 @@
     "/condos/{condoId}/residentRisks/{riskId}": {
       "schema": "ResidentRisk",
       "description": "Predictive risk scores for residents"
+    },
+    "/condos/{condoId}/gasReadings/{readingId}": {
+      "schema": "GasReading",
+      "description": "Gas consumption readings"
     }
   }
 }
