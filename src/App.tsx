@@ -359,6 +359,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     type: 'VISITOR' as Visitor['type'],
     validUntil: ''
   });
+  const [visitorSuccess, setVisitorSuccess] = useState<Visitor | null>(null);
+
+  const handleShareVisitor = (visitor: any) => {
+    const typeLabel = visitor.type === 'VISITOR' ? 'Visitante' : visitor.type === 'SERVICE' ? 'Prestador de Serviço' : 'Delivery';
+    const text = `*Convite Digital - ${condo?.name || 'Condomínio'}*\n\n` +
+      `Olá, *${visitor.name}*!\n` +
+      `Sua entrada foi autorizada. Apresente os dados abaixo na portaria:\n\n` +
+      `📅 *Validade:* ${new Date(visitor.validUntil).toLocaleString('pt-BR')}\n` +
+      `🔑 *Tipo:* ${typeLabel}\n` +
+      `📍 *Unidade:* ${residents.find(r => r.email === user.email)?.unit || 'N/A'}\n\n` +
+      `_Gerado por CondoPro_`;
+    
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
+  };
 
   useEffect(() => {
     if (!user.condoId) return;
@@ -746,10 +761,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       await setDoc(visitorRef, visitorData);
       await createAuditLog('Autorizou novo visitante', 'VISITOR', visitorRef.id, `Visitante: ${newVisitor.name}, Tipo: ${newVisitor.type}`);
       
-      setShowVisitorModal(false);
-      setShowQRPreview(false);
+      setVisitorSuccess(visitorData);
       setNewVisitor({ name: '', type: 'VISITOR', validUntil: '' });
-      alert("Autorização gerada com sucesso!");
+      setShowQRPreview(false);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/visitors`);
     } finally {
@@ -876,7 +890,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           )}
         </div>
         
-        <nav className="flex-grow p-4 space-y-1 mt-4">
+        <nav className="flex-grow p-4 space-y-1 mt-4 overflow-y-auto custom-scrollbar">
           {filteredMenuItems.map((item) => {
             const hasNotification = (item.id === 'maintenance' && maintenanceTasks.some(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7)))) ||
                                    (item.id === 'risk' && residentRisks.some(r => r.riskLevel === 'HIGH'));
@@ -885,7 +899,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               <button
                 key={item.id}
                 onClick={() => setActiveMenu(item.id)}
-                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group ${
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group focus:outline-none ${
                   activeMenu === item.id 
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -907,7 +921,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 {activeMenu === item.id && (
                   <motion.div 
                     layoutId="active-pill"
-                    className="absolute left-0 w-1 h-6 bg-white rounded-r-full"
+                    className="absolute left-0 w-1.5 h-8 bg-white rounded-r-full shadow-[0_0_10px_rgba(255,255,255,0.5)]"
                   />
                 )}
               </button>
@@ -1905,6 +1919,13 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                               </div>
                             </div>
                             <div className="flex gap-2">
+                              <button 
+                                onClick={() => handleShareVisitor(visitor)}
+                                className="p-2 hover:bg-green-50 text-green-500 rounded-lg transition-colors"
+                                title="Compartilhar Convite"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => setSelectedVisitorForQR(visitor)}
                                 className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"
@@ -3058,7 +3079,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   <p className="text-xs text-gray-500">{selectedVisitorForQR.type} • Válido até {selectedVisitorForQR.validUntil}</p>
                 </div>
                 
-                <button className="w-full py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:scale-105 transition-all">
+                <button 
+                  onClick={() => handleShareVisitor(selectedVisitorForQR)}
+                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:scale-105 transition-all"
+                >
                   Compartilhar no WhatsApp <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
@@ -3092,98 +3116,134 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 <button onClick={() => {
                   setShowVisitorModal(false);
                   setShowQRPreview(false);
+                  setVisitorSuccess(null);
                 }} className="p-2 hover:bg-gray-100 rounded-full">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="p-8 space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Visitante</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nome completo" 
-                    value={newVisitor.name}
-                    onChange={(e) => setNewVisitor({ ...newVisitor, name: e.target.value })}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo de Acesso</label>
-                  <select 
-                    value={newVisitor.type}
-                    onChange={(e) => setNewVisitor({ ...newVisitor, type: e.target.value as Visitor['type'] })}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  >
-                    <option value="VISITOR">Visitante</option>
-                    <option value="SERVICE">Prestador de Serviço</option>
-                    <option value="DELIVERY">Delivery</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Validade</label>
-                  <input 
-                    type="datetime-local" 
-                    value={newVisitor.validUntil}
-                    onChange={(e) => setNewVisitor({ ...newVisitor, validUntil: e.target.value })}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
-                  />
-                </div>
-                <button 
-                  onClick={handleAddVisitor}
-                  disabled={isLoading}
-                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isLoading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-5 h-5" /> Autorizar e Salvar
-                    </>
-                  )}
-                </button>
-
-                <button 
-                  onClick={() => {
-                    if (!newVisitor.name || !newVisitor.validUntil) {
-                      alert("Preencha o nome e a validade para gerar o QR Code.");
-                      return;
-                    }
-                    setShowQRPreview(!showQRPreview);
-                  }}
-                  className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-gray-200 transition-all mt-2"
-                >
-                  <QrCode className="w-5 h-5" /> 
-                  {showQRPreview ? 'Ocultar QR Code' : 'Gerar e Exibir QR Code'}
-                </button>
-
-                <AnimatePresence>
-                  {showQRPreview && (
+                {visitorSuccess ? (
+                  <div className="flex flex-col items-center text-center space-y-6 py-4">
                     <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-green-500"
                     >
-                      <div className="pt-4 flex flex-col items-center space-y-4">
-                        <div className="p-4 bg-white border-2 border-dashed border-gray-100 rounded-3xl shadow-sm">
-                          <QRCodeSVG 
-                            value={JSON.stringify({
-                              name: newVisitor.name,
-                              type: newVisitor.type,
-                              validUntil: newVisitor.validUntil,
-                              unit: residents.find(r => r.email === user.email)?.unit || 'N/A'
-                            })}
-                            size={180}
-                            level="H"
-                          />
-                        </div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
-                          Apresente este código na portaria para autorização
-                        </p>
-                      </div>
+                      <CheckCircle2 className="w-12 h-12" />
                     </motion.div>
-                  )}
-                </AnimatePresence>
+                    <div>
+                      <h4 className="text-xl font-bold text-primary">Autorização Concluída!</h4>
+                      <p className="text-sm text-gray-500 mt-2">O visitante {visitorSuccess.name} agora está autorizado.</p>
+                    </div>
+                    <div className="w-full space-y-3 pt-4">
+                      <button 
+                        onClick={() => handleShareVisitor(visitorSuccess)}
+                        className="w-full py-4 bg-green-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition-all shadow-lg shadow-green-500/20"
+                      >
+                        <Share2 className="w-5 h-5" /> Compartilhar Convite
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setVisitorSuccess(null);
+                          setShowVisitorModal(false);
+                        }}
+                        className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all"
+                      >
+                        Concluído
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Visitante</label>
+                      <input 
+                        type="text" 
+                        placeholder="Nome completo" 
+                        value={newVisitor.name}
+                        onChange={(e) => setNewVisitor({ ...newVisitor, name: e.target.value })}
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo de Acesso</label>
+                      <select 
+                        value={newVisitor.type}
+                        onChange={(e) => setNewVisitor({ ...newVisitor, type: e.target.value as Visitor['type'] })}
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="VISITOR">Visitante</option>
+                        <option value="SERVICE">Prestador de Serviço</option>
+                        <option value="DELIVERY">Delivery</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Validade</label>
+                      <input 
+                        type="datetime-local" 
+                        value={newVisitor.validUntil}
+                        onChange={(e) => setNewVisitor({ ...newVisitor, validUntil: e.target.value })}
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
+                      />
+                    </div>
+                    <button 
+                      onClick={handleAddVisitor}
+                      disabled={isLoading}
+                      className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isLoading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5" /> Autorizar e Salvar
+                        </>
+                      )}
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        if (!newVisitor.name || !newVisitor.validUntil) {
+                          alert("Preencha o nome e a validade para gerar o QR Code.");
+                          return;
+                        }
+                        setShowQRPreview(!showQRPreview);
+                      }}
+                      className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-gray-200 transition-all mt-2"
+                    >
+                      <QrCode className="w-5 h-5" /> 
+                      {showQRPreview ? 'Ocultar QR Code' : 'Gerar e Exibir QR Code'}
+                    </button>
+
+                    <AnimatePresence>
+                      {showQRPreview && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="pt-4 flex flex-col items-center space-y-4">
+                            <div className="p-4 bg-white border-2 border-dashed border-gray-100 rounded-3xl shadow-sm">
+                              <QRCodeSVG 
+                                value={JSON.stringify({
+                                  name: newVisitor.name,
+                                  type: newVisitor.type,
+                                  validUntil: newVisitor.validUntil,
+                                  unit: residents.find(r => r.email === user.email)?.unit || 'N/A'
+                                })}
+                                size={180}
+                                level="H"
+                              />
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
+                              Apresente este código na portaria para autorização
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
@@ -3417,12 +3477,12 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
           )}
           {isSidebarOpen && <span className="font-bold font-headline truncate">{appSettings.logo ? 'CondoPro' : 'SuperAdmin'}</span>}
         </div>
-        <nav className="flex-grow p-4 space-y-2">
+        <nav className="flex-grow p-4 space-y-2 overflow-y-auto custom-scrollbar">
           {menuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveMenu(item.id)}
-              className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all ${activeMenu === item.id ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+              className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all focus:outline-none ${activeMenu === item.id ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
             >
               <item.icon className="w-6 h-6 flex-shrink-0" />
               {isSidebarOpen && <span className="font-medium">{item.label}</span>}
