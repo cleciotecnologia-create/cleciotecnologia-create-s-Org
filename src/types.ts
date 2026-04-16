@@ -41,11 +41,15 @@ export interface Resident {
   name: string;
   unit: string;
   block?: string;
+  tower?: string;
   email: string;
   phone: string;
   cpf?: string;
   login?: string;
   status: 'ACTIVE' | 'INACTIVE';
+  isOwner: boolean;
+  ownerId?: string;
+  tenantIds?: string[];
 }
 
 export interface Occurrence {
@@ -201,6 +205,29 @@ export interface ResidentRisk {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   factors: string[];
   lastUpdated: string;
+}
+
+export interface Infraction {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  unit: string;
+  type: 'WARNING' | 'FINE';
+  description: string;
+  value?: number;
+  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  createdAt: string;
+}
+
+export interface Minute {
+  id: string;
+  condoId: string;
+  assemblyId?: string;
+  title: string;
+  content: string;
+  fileUrl?: string;
+  createdAt: string;
 }
 
 export interface GasReading {

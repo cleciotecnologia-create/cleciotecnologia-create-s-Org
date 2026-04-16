@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   BarChart, 
   Bar, 
@@ -33,7 +34,8 @@ import { ptBR } from 'date-fns/locale';
 import { 
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
-  Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading
+  Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading,
+  Infraction, Minute
 } from './types';
 import { auth, db } from './firebase';
 import { 
@@ -107,9 +109,9 @@ const MOCK_CONDO: Condo = {
 };
 
 const MOCK_RESIDENTS: Resident[] = [
-  { id: 'r1', condoId: 'c1', name: 'Ana Silva', unit: '101A', email: 'ana@email.com', phone: '(11) 98888-7777', status: 'ACTIVE' },
-  { id: 'r2', condoId: 'c1', name: 'Bruno Santos', unit: '202B', email: 'bruno@email.com', phone: '(11) 97777-6666', status: 'ACTIVE' },
-  { id: 'r3', condoId: 'c1', name: 'Carla Dias', unit: '303C', email: 'carla@email.com', phone: '(11) 96666-5555', status: 'INACTIVE' },
+  { id: 'r1', condoId: 'c1', name: 'Ana Silva', unit: '101A', email: 'ana@email.com', phone: '(11) 98888-7777', status: 'ACTIVE', isOwner: true },
+  { id: 'r2', condoId: 'c1', name: 'Bruno Santos', unit: '202B', email: 'bruno@email.com', phone: '(11) 97777-6666', status: 'ACTIVE', isOwner: true },
+  { id: 'r3', condoId: 'c1', name: 'Carla Dias', unit: '303C', email: 'carla@email.com', phone: '(11) 96666-5555', status: 'INACTIVE', isOwner: false, ownerId: 'r1' },
 ];
 
 const MOCK_OCCURRENCES: Occurrence[] = [
@@ -332,6 +334,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [condoScore, setCondoScore] = useState<CondoScore | null>(null);
   const [residentRisks, setResidentRisks] = useState<ResidentRisk[]>([]);
   const [gasReadings, setGasReadings] = useState<GasReading[]>([]);
+  const [infractions, setInfractions] = useState<Infraction[]>([]);
+  const [minutes, setMinutes] = useState<Minute[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -341,10 +345,13 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     email: '', 
     unit: '', 
     block: '',
+    tower: '',
     phone: '', 
     cpf: '', 
     login: '',
-    status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE'
+    status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+    isOwner: false,
+    ownerId: ''
   });
   const [newVisitor, setNewVisitor] = useState({
     name: '',
@@ -557,6 +564,44 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/gasReadings`));
 
+    const infractionsRef = collection(db, 'condos', user.condoId, 'infractions');
+    const unsubInfractions = onSnapshot(infractionsRef, (snap) => {
+      if (snap.empty) {
+        setInfractions([
+          {
+            id: 'inf1',
+            condoId: user.condoId,
+            residentId: 'r1',
+            residentName: 'Ana Silva',
+            unit: '101A',
+            type: 'WARNING',
+            description: 'Barulho excessivo após as 22h no dia 10/04.',
+            status: 'PENDING',
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      } else {
+        setInfractions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Infraction)));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/infractions`));
+
+    const minutesRef = collection(db, 'condos', user.condoId, 'minutes');
+    const unsubMinutes = onSnapshot(minutesRef, (snap) => {
+      if (snap.empty) {
+        setMinutes([
+          {
+            id: 'min1',
+            condoId: user.condoId,
+            title: 'Ata da Assembleia Geral Ordinária - Março 2024',
+            content: 'Principais tópicos: Aprovação de contas, eleição de novo síndico e reformas estruturais.',
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      } else {
+        setMinutes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Minute)));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/minutes`));
+
     // Mock Assemblies if empty
     const mockAssemblies: Assembly[] = [
       {
@@ -618,6 +663,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubScore();
       unsubRisks();
       unsubGas();
+      unsubInfractions();
+      unsubMinutes();
     };
   }, [user.condoId]);
 
@@ -635,11 +682,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         name: newResident.name,
         unit: newResident.unit,
         block: newResident.block,
+        tower: newResident.tower,
         email: newResident.email,
         phone: newResident.phone,
         cpf: newResident.cpf,
         login: newResident.login,
-        status: newResident.status
+        status: newResident.status,
+        isOwner: newResident.isOwner,
+        ownerId: newResident.isOwner ? undefined : newResident.ownerId,
+        tenantIds: newResident.isOwner ? [] : undefined
       };
       await setDoc(residentRef, residentData);
 
@@ -656,10 +707,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       };
       await setDoc(userRef, userData);
 
-      await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}${newResident.block ? `, Bloco: ${newResident.block}` : ''}`);
+      await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}, Tipo: ${newResident.isOwner ? 'Proprietário' : 'Inquilino'}`);
 
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', block: '', phone: '', cpf: '', login: '', status: 'ACTIVE' });
+      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '' });
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/residents`);
     } finally {
@@ -723,8 +774,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'announcements', label: 'Comunicados', icon: Megaphone },
     { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
     { id: 'assemblies', label: 'Assembleias', icon: Gavel },
+    { id: 'minutes', label: 'Atas e Documentos', icon: FileText },
     { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
+    { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true },
     { id: 'reservations', label: 'Reservas', icon: Calendar },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield },
     { id: 'packages', label: 'Encomendas', icon: PackageIcon },
@@ -1648,6 +1701,130 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
+            {activeMenu === 'infractions' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-800">Multas e Infrações</h2>
+                    <p className="text-slate-500 text-sm">Gestão de penalidades e advertências do condomínio</p>
+                  </div>
+                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2">
+                    <Plus className="w-5 h-5" />
+                    Registrar Infração
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50/50 border-b border-gray-100">
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Morador / Unidade</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Valor</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Data</th>
+                          <th className="px-8 py-6 text-xs font-bold text-gray-400 uppercase tracking-widest">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {infractions.map((inf) => (
+                          <tr key={inf.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-8 py-6">
+                              <div className="font-bold text-slate-700">{inf.residentName}</div>
+                              <div className="text-xs text-slate-400">{inf.unit}</div>
+                            </td>
+                            <td className="px-8 py-6">
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                inf.type === 'FINE' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+                              }`}>
+                                {inf.type === 'FINE' ? 'Multa' : 'Advertência'}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6">
+                              <div className="text-sm text-slate-600 max-w-xs truncate">{inf.description}</div>
+                            </td>
+                            <td className="px-8 py-6">
+                              <div className="font-bold text-slate-700">
+                                {inf.value ? `R$ ${inf.value.toFixed(2)}` : '-'}
+                              </div>
+                            </td>
+                            <td className="px-8 py-6">
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                inf.status === 'PAID' ? 'bg-green-100 text-green-600' : 
+                                inf.status === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {inf.status === 'PAID' ? 'Pago' : inf.status === 'PENDING' ? 'Pendente' : 'Cancelado'}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6">
+                              <div className="text-sm text-slate-500">{new Date(inf.createdAt).toLocaleDateString()}</div>
+                            </td>
+                            <td className="px-8 py-6">
+                              <div className="flex gap-2">
+                                <button className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-all" title="Ver Detalhes">
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button className="p-2 hover:bg-green-50 text-green-600 rounded-lg transition-all" title="Marcar como Pago">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'minutes' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-800">Atas e Documentos</h2>
+                    <p className="text-slate-500 text-sm">Acesso oficial às atas de assembleias e documentos do condomínio</p>
+                  </div>
+                  {user.role === 'CONDO_ADMIN' && (
+                    <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2">
+                      <Plus className="w-5 h-5" />
+                      Novo Documento
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {minutes.map((min) => (
+                    <motion.div 
+                      key={min.id}
+                      whileHover={{ y: -5 }}
+                      className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col justify-between group"
+                    >
+                      <div className="space-y-4">
+                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <FileText className="w-7 h-7" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-lg leading-tight mb-2">{min.title}</h4>
+                          <p className="text-sm text-slate-500 line-clamp-3">{min.content}</p>
+                        </div>
+                      </div>
+                      <div className="mt-8 pt-6 border-t border-gray-50 flex items-center justify-between">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                          {new Date(min.createdAt).toLocaleDateString()}
+                        </span>
+                        <button className="text-blue-600 font-bold text-sm hover:underline flex items-center gap-1">
+                          Acessar <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'concierge' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -2148,6 +2325,107 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   </>
                 ) : (
                   <div className="space-y-6">
+                    {/* Owner-specific sections */}
+                    {residents.find(r => r.email === user.email)?.isOwner && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-blue-600 rounded-[2rem] p-8 text-white shadow-xl shadow-blue-600/20">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h4 className="font-bold text-lg">Gestão de Inquilinos</h4>
+                              <p className="text-blue-100 text-xs">Acompanhe o status dos seus inquilinos</p>
+                            </div>
+                            <Users className="w-6 h-6 text-blue-200" />
+                          </div>
+                          <div className="space-y-4">
+                            {residents.filter(r => r.ownerId === residents.find(res => res.email === user.email)?.id).map(tenant => (
+                              <div key={tenant.id} className="flex justify-between items-center bg-white/10 p-4 rounded-2xl">
+                                <div>
+                                  <p className="font-bold text-sm">{tenant.name}</p>
+                                  <p className="text-[10px] text-blue-200 uppercase tracking-widest">Unidade {tenant.unit}</p>
+                                </div>
+                                <span className={`px-2 py-1 rounded-md text-[10px] font-black ${
+                                  invoices.find(i => i.residentId === tenant.id && i.status === 'PENDING') ? 'bg-amber-400 text-amber-900' : 'bg-emerald-400 text-emerald-900'
+                                }`}>
+                                  {invoices.find(i => i.residentId === tenant.id && i.status === 'PENDING') ? 'Pendente' : 'Em dia'}
+                                </span>
+                              </div>
+                            ))}
+                            {residents.filter(r => r.ownerId === residents.find(res => res.email === user.email)?.id).length === 0 && (
+                              <p className="text-sm text-blue-200 text-center py-4 italic">Nenhum inquilino vinculado.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200/60">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-lg">Prévia de Valores</h4>
+                              <p className="text-slate-500 text-xs">Estimativa para o próximo mês</p>
+                            </div>
+                            <TrendingUp className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-500">Taxa Condominial</span>
+                              <span className="font-bold text-slate-800">R$ 450,00</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-500">Fundo de Reserva</span>
+                              <span className="font-bold text-slate-800">R$ 45,00</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-500">Gás (Estimado)</span>
+                              <span className="font-bold text-slate-800">R$ 85,00</span>
+                            </div>
+                            <div className="pt-3 border-t border-slate-100 flex justify-between">
+                              <span className="font-bold text-slate-800">Total Previsto</span>
+                              <span className="font-black text-blue-600">R$ 580,00</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Gas Usage Mirroring for Residents/Owners */}
+                    <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200/60">
+                      <div className="flex justify-between items-center mb-6">
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-lg">Espelho de Consumo de Gás</h4>
+                          <p className="text-slate-500 text-xs">Acompanhamento detalhado das leituras</p>
+                        </div>
+                        <Zap className="w-6 h-6 text-amber-500" />
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-slate-400 font-bold border-b border-slate-100">
+                              <th className="pb-4">Mês/Ano</th>
+                              <th className="pb-4 text-right">Leitura Anterior</th>
+                              <th className="pb-4 text-right">Leitura Atual</th>
+                              <th className="pb-4 text-right">Consumo (m³)</th>
+                              <th className="pb-4 text-right">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {gasReadings.filter(r => r.residentId === user.id).map(reading => (
+                              <tr key={reading.id}>
+                                <td className="py-4 font-bold text-slate-700">{reading.billingMonth}</td>
+                                <td className="py-4 text-right text-slate-500">{reading.previousReading}</td>
+                                <td className="py-4 text-right text-slate-500">{reading.currentReading}</td>
+                                <td className="py-4 text-right font-bold text-slate-700">{reading.consumption}</td>
+                                <td className="py-4 text-right font-black text-blue-600">R$ {reading.totalAmount.toFixed(2)}</td>
+                              </tr>
+                            ))}
+                            {gasReadings.filter(r => r.residentId === user.id).length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="py-8 text-center text-slate-400 italic">Nenhuma leitura registrada para esta unidade.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
                     <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden">
                       <div className="relative z-10">
                         <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Próximo Vencimento</p>
@@ -2463,27 +2741,64 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unidade</label>
                     <input 
                       type="text" 
                       value={newResident.unit}
                       onChange={(e) => setNewResident({...newResident, unit: e.target.value})}
-                      placeholder="Ex: 101" 
+                      placeholder="101" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Bloco / Torre</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Bloco</label>
                     <input 
                       type="text" 
                       value={newResident.block}
                       onChange={(e) => setNewResident({...newResident, block: e.target.value})}
-                      placeholder="Ex: Bloco A" 
+                      placeholder="A" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Torre</label>
+                    <input 
+                      type="text" 
+                      value={newResident.tower}
+                      onChange={(e) => setNewResident({...newResident, tower: e.target.value})}
+                      placeholder="T1" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-slate-700">É Proprietário?</label>
+                    <button 
+                      onClick={() => setNewResident({...newResident, isOwner: !newResident.isOwner})}
+                      className={`w-12 h-6 rounded-full transition-all relative ${newResident.isOwner ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newResident.isOwner ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  {!newResident.isOwner && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Proprietário Responsável</label>
+                      <select 
+                        value={newResident.ownerId}
+                        onChange={(e) => setNewResident({...newResident, ownerId: e.target.value})}
+                        className="w-full p-4 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">Selecione o proprietário</option>
+                        {residents.filter(r => r.isOwner).map(owner => (
+                          <option key={owner.id} value={owner.id}>{owner.name} ({owner.unit})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -3754,6 +4069,141 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   );
 };
 
+// --- AI Assistant Component ---
+const AIAssistant = ({ condoRules }: { condoRules: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+    const userMsg = input.trim();
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setIsTyping(true);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: userMsg,
+        config: {
+          systemInstruction: `Você é o Assistente Virtual do Condomínio. Sua função é tirar dúvidas dos moradores com base no estatuto e regras do condomínio fornecidas abaixo. Seja educado, prestativo e direto. Se não souber a resposta com base nas regras, oriente o morador a procurar o síndico ou a administração.\n\nREGRAS DO CONDOMÍNIO:\n${condoRules}`,
+        },
+      });
+      
+      const aiText = response.text || "Desculpe, não consegui processar sua pergunta agora.";
+      setMessages(prev => [...prev, { role: 'ai', text: aiText }]);
+    } catch (error) {
+      console.error("AI Error:", error);
+      setMessages(prev => [...prev, { role: 'ai', text: "Ocorreu um erro ao processar sua solicitação. Tente novamente mais tarde." }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50">
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="bg-white w-80 md:w-96 h-[500px] rounded-3xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden mb-4"
+          >
+            <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-bold">Assistente Virtual</h4>
+                  <p className="text-xs text-blue-100">Dúvidas sobre o condomínio</p>
+                </div>
+              </div>
+              <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/10 rounded-lg transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {messages.length === 0 && (
+                <div className="text-center py-8 space-y-4">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                    <HelpCircle className="w-8 h-8" />
+                  </div>
+                  <p className="text-sm text-gray-500 font-medium px-4">Olá! Sou a IA do seu condomínio. Como posso te ajudar hoje?</p>
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] p-4 rounded-2xl text-sm font-medium ${
+                    msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-gray-100 text-slate-700 rounded-tl-none'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {isTyping && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 p-4 rounded-2xl rounded-tl-none flex gap-1">
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Digite sua dúvida..."
+                  className="flex-1 p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <button 
+                  onClick={handleSend}
+                  className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.button 
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setIsOpen(!isOpen)}
+        className="bg-blue-600 text-white p-5 rounded-2xl shadow-2xl shadow-blue-600/40 flex items-center gap-3"
+      >
+        <Sparkles className="w-6 h-6" />
+        <span className="font-bold hidden md:inline">Dúvidas? Fale com a IA</span>
+      </motion.button>
+    </div>
+  );
+};
+
+// --- Constants ---
+const CONDO_RULES = `
+1. SILÊNCIO: Horário de silêncio das 22h às 08h. Multa de R$ 200,00 após advertência.
+2. ANIMAIS: Permitidos animais de pequeno porte, desde que no colo em áreas comuns.
+3. MUDANÇAS: Devem ser agendadas com 48h de antecedência. Apenas de segunda a sexta, das 08h às 18h.
+4. PISCINA: Uso exclusivo de moradores e convidados (limite de 2 por unidade). Proibido garrafas de vidro.
+5. LIXO: Deve ser depositado nos coletores específicos de cada andar, devidamente ensacado.
+6. VISITANTES: Devem ser autorizados via aplicativo ou interfone.
+7. VAGAS: Proibido estacionar em vaga de terceiros ou fora da demarcação.
+8. REFORMAS: Apenas com ART/RRT e aprovação da administração. Horário: 09h às 17h (seg-sex).
+`;
+
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [detectedCondo, setDetectedCondo] = useState<Condo | null>(null);
@@ -4157,6 +4607,8 @@ export default function App() {
       ) : (
         <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />
       )}
+
+      {user && <AIAssistant condoRules={CONDO_RULES} />}
 
       {/* Login Modal */}
       <AnimatePresence>

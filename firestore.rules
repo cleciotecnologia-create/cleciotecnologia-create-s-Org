@@ -121,14 +121,16 @@ service cloud.firestore {
     }
 
     function isValidCondo(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'adminId', 'createdAt']) &&
+      return hasOnlyAllowedFields(['id', 'name', 'slug', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'trialEndsAt', 'adminId', 'createdAt']) &&
              data.id is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.slug is string && data.slug.size() > 0 &&
              data.address is string &&
              data.city is string && data.city.size() > 0 &&
              data.units is number && data.units >= 0 &&
              data.planId in ['BASIC', 'PRO', 'PREMIUM'] &&
-             data.subscriptionStatus in ['ACTIVE', 'PAST_DUE', 'CANCELED'] &&
+             data.subscriptionStatus in ['ACTIVE', 'PAST_DUE', 'CANCELED', 'TRIAL'] &&
+             (!('trialEndsAt' in data) || isValidDateString(data.trialEndsAt)) &&
              data.adminId is string &&
              isValidDateString(data.createdAt);
     }
@@ -239,6 +241,29 @@ service cloud.firestore {
              data.totalAmount is number;
     }
 
+    function isValidInfraction(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'residentName', 'unit', 'type', 'description', 'value', 'status', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.type in ['WARNING', 'FINE'] &&
+             data.description is string && data.description.size() > 0 &&
+             (!('value' in data) || data.value is number) &&
+             data.status in ['PENDING', 'PAID', 'CANCELLED'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidMinute(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'assemblyId', 'title', 'content', 'fileUrl', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             (!('assemblyId' in data) || data.assemblyId is string) &&
+             data.title is string && data.title.size() > 0 &&
+             data.content is string &&
+             (!('fileUrl' in data) || data.fileUrl is string) &&
+             isValidDateString(data.createdAt);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -264,8 +289,8 @@ service cloud.firestore {
     }
 
     match /condos/{condoId} {
-      // Read: SUPER_ADMIN, or CONDO_ADMIN/RESIDENT of this specific condo
-      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      // Read: Publicly allowed for detection by slug/landing page
+      allow read: if true;
       
       // Create: Only SUPER_ADMIN
       allow create: if isAdmin() && isValidCondo(request.resource.data);
@@ -366,6 +391,18 @@ service cloud.firestore {
     match /condos/{condoId}/gasReadings/{readingId} {
       allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
       allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidGasReading(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/infractions/{infractionId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidInfraction(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/minutes/{minuteId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMinute(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 

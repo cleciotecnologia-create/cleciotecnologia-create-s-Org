@@ -23,15 +23,17 @@
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
+        "slug": { "type": "string" },
         "address": { "type": "string" },
         "city": { "type": "string" },
         "units": { "type": "number" },
         "planId": { "type": "string", "enum": ["BASIC", "PRO", "PREMIUM"] },
-        "subscriptionStatus": { "type": "string", "enum": ["ACTIVE", "PAST_DUE", "CANCELED"] },
+        "subscriptionStatus": { "type": "string", "enum": ["ACTIVE", "PAST_DUE", "CANCELED", "TRIAL"] },
+        "trialEndsAt": { "type": "string", "format": "date-time" },
         "adminId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "name", "planId", "adminId"]
+      "required": ["id", "name", "slug", "planId", "adminId"]
     },
     "Resident": {
       "title": "Resident",
@@ -43,13 +45,17 @@
         "name": { "type": "string" },
         "unit": { "type": "string" },
         "block": { "type": "string" },
+        "tower": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
         "cpf": { "type": "string" },
         "login": { "type": "string" },
-        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] }
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "isOwner": { "type": "boolean" },
+        "ownerId": { "type": "string" },
+        "tenantIds": { "type": "array" }
       },
-      "required": ["id", "condoId", "name", "unit"]
+      "required": ["id", "condoId", "name", "unit", "isOwner"]
     },
     "Occurrence": {
       "title": "Occurrence",
@@ -230,6 +236,39 @@
         "totalAmount": { "type": "number" }
       },
       "required": ["id", "condoId", "residentId", "unit", "previousReading", "currentReading", "consumption", "readingDate", "billingMonth", "status"]
+    },
+    "Infraction": {
+      "title": "Infraction",
+      "description": "Condominium infraction or fine",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "unit": { "type": "string" },
+        "type": { "type": "string", "enum": ["WARNING", "FINE"] },
+        "description": { "type": "string" },
+        "value": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "CANCELLED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "residentId", "type", "description", "status", "createdAt"]
+    },
+    "Minute": {
+      "title": "Minute",
+      "description": "Assembly minute or official document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "assemblyId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "title", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -288,6 +327,14 @@
     "/condos/{condoId}/gasReadings/{readingId}": {
       "schema": "GasReading",
       "description": "Gas consumption readings"
+    },
+    "/condos/{condoId}/infractions/{infractionId}": {
+      "schema": "Infraction",
+      "description": "Condominium infractions and fines"
+    },
+    "/condos/{condoId}/minutes/{minuteId}": {
+      "schema": "Minute",
+      "description": "Assembly minutes and official documents"
     }
   }
 }
