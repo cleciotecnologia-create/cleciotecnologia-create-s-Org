@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { User as AppUser, Condo, Resident, Occurrence, Reservation, ChatMessage, AuditLog, PLANS, Plan } from './types';
+import { User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, ChatMessage, AuditLog, PLANS, Plan } from './types';
 import { auth, db } from './firebase';
 import { 
   onAuthStateChanged, 
@@ -70,6 +70,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const MOCK_CONDO: Condo = {
   id: 'c1',
   name: 'Residencial Grand Horizon',
+  slug: 'grand-horizon',
   address: 'Av. das Nações Unidas, 12901',
   city: 'São Paulo',
   units: 248,
@@ -289,6 +290,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   const [condo, setCondo] = useState<Condo | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
+  const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -303,6 +305,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
     cpf: '', 
     login: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE'
+  });
+  const [newVisitor, setNewVisitor] = useState({
+    name: '',
+    type: 'VISITOR' as Visitor['type'],
+    validUntil: ''
   });
 
   useEffect(() => {
@@ -328,6 +335,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       setOccurrences(snap.docs.map(d => ({ id: d.id, ...d.data() } as Occurrence)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/occurrences`));
 
+    const visitorsRef = collection(db, 'condos', user.condoId, 'visitors');
+    const unsubVisitors = onSnapshot(visitorsRef, (snap) => {
+      setVisitors(snap.docs.map(d => ({ id: d.id, ...d.data() } as Visitor)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/visitors`));
+
     const messagesRef = collection(db, 'condos', user.condoId, 'messages');
     const messagesQuery = query(messagesRef, orderBy('createdAt', 'asc'), limit(50));
     const unsubMessages = onSnapshot(messagesQuery, (snap) => {
@@ -347,6 +359,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       unsubCondo();
       unsubResidents();
       unsubOccurrences();
+      unsubVisitors();
       unsubMessages();
       unsubAuditLogs();
     };
@@ -398,6 +411,38 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
     }
   };
 
+  const handleAddVisitor = async () => {
+    if (!newVisitor.name || !newVisitor.validUntil || !user.condoId) {
+      alert("Por favor, preencha todos os campos.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const visitorRef = doc(collection(db, 'condos', user.condoId, 'visitors'));
+      const visitorData: Visitor = {
+        id: visitorRef.id,
+        condoId: user.condoId,
+        residentId: user.id,
+        name: newVisitor.name,
+        type: newVisitor.type,
+        status: 'AUTHORIZED',
+        validUntil: newVisitor.validUntil,
+        qrCode: '' // Will be generated on display
+      };
+      await setDoc(visitorRef, visitorData);
+      await createAuditLog('Autorizou novo visitante', 'VISITOR', visitorRef.id, `Visitante: ${newVisitor.name}, Tipo: ${newVisitor.type}`);
+      
+      setShowVisitorModal(false);
+      setNewVisitor({ name: '', type: 'VISITOR', validUntil: '' });
+      alert("Autorização gerada com sucesso!");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/visitors`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !user.condoId) return;
@@ -432,8 +477,38 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
 
   const currentCondoName = condo?.name || MOCK_CONDO.name;
 
+  const isBlocked = condo && (condo.subscriptionStatus === 'CANCELED' || condo.subscriptionStatus === 'PAST_DUE');
+  const isTrial = condo && condo.subscriptionStatus === 'TRIAL';
+
+  if (isBlocked && user.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-center">
+        <div className="max-w-md space-y-6">
+          <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+            <AlertTriangle className="w-10 h-10 text-red-500" />
+          </div>
+          <h2 className="text-3xl font-black text-white">Acesso Bloqueado</h2>
+          <p className="text-slate-400 font-medium">
+            A assinatura do condomínio <span className="text-white font-bold">{condo.name}</span> está suspensa por falta de pagamento ou cancelamento.
+          </p>
+          <div className="p-6 bg-white/5 rounded-2xl border border-white/10">
+            <p className="text-sm text-slate-300">Entre em contato com a administração ou regularize o pagamento para restabelecer o acesso.</p>
+          </div>
+          <button onClick={onLogout} className="w-full py-4 bg-white text-slate-900 rounded-2xl font-black shadow-xl hover:bg-slate-100 transition-all">
+            Sair da Conta
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex relative">
+      {isTrial && (
+        <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white py-2 px-4 text-center text-xs font-bold z-[60] shadow-lg">
+          PERÍODO DE TESTE: Sua licença expira em {new Date(condo.trialEndsAt || '').toLocaleDateString()}. <button className="underline ml-2">Assinar Agora</button>
+        </div>
+      )}
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -876,34 +951,50 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                   <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
                     <h4 className="text-lg font-bold text-primary mb-6">Visitantes Autorizados</h4>
                     <div className="space-y-4">
-                      {[
-                        { id: 'v1', name: 'João Pereira', type: 'Visitante', status: 'AUTHORIZED', validUntil: 'Hoje, 22:00' },
-                        { id: 'v2', name: 'Carlos Entregas', type: 'Delivery', status: 'AUTHORIZED', validUntil: 'Hoje, 19:30' },
-                      ].map((visitor, i) => (
-                        <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                              <Users className="w-5 h-5 text-primary" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-primary">{visitor.name}</p>
-                              <p className="text-xs text-gray-400">{visitor.type} • Válido até {visitor.validUntil}</p>
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => setSelectedVisitorForQR(visitor)}
-                              className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"
-                              title="Ver QR Code"
-                            >
-                              <QrCode className="w-4 h-4" />
-                            </button>
-                            <button className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
+                      {visitors.length === 0 ? (
+                        <div className="text-center py-10 text-gray-400">
+                          <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                          <p>Nenhum visitante autorizado no momento.</p>
                         </div>
-                      ))}
+                      ) : (
+                        visitors.map((visitor) => (
+                          <div key={visitor.id} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                                <Users className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-primary">{visitor.name}</p>
+                                <p className="text-xs text-gray-400">{visitor.type} • Válido até {new Date(visitor.validUntil).toLocaleString('pt-BR')}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => setSelectedVisitorForQR(visitor)}
+                                className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"
+                                title="Ver QR Code"
+                              >
+                                <QrCode className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (window.confirm("Deseja remover esta autorização?")) {
+                                    try {
+                                      await setDoc(doc(db, 'condos', user.condoId!, 'visitors', visitor.id), { status: 'EXPIRED' }, { merge: true });
+                                      await createAuditLog('Removeu autorização de visitante', 'VISITOR', visitor.id, `Visitante: ${visitor.name}`);
+                                    } catch (err) {
+                                      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/visitors/${visitor.id}`);
+                                    }
+                                  }
+                                }}
+                                className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -1531,25 +1622,47 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
               <div className="p-8 space-y-4">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Visitante</label>
-                  <input type="text" placeholder="Nome completo" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <input 
+                    type="text" 
+                    placeholder="Nome completo" 
+                    value={newVisitor.name}
+                    onChange={(e) => setNewVisitor({ ...newVisitor, name: e.target.value })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo de Acesso</label>
-                  <select className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                    <option>Visitante</option>
-                    <option>Prestador de Serviço</option>
-                    <option>Delivery</option>
+                  <select 
+                    value={newVisitor.type}
+                    onChange={(e) => setNewVisitor({ ...newVisitor, type: e.target.value as Visitor['type'] })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="VISITOR">Visitante</option>
+                    <option value="SERVICE">Prestador de Serviço</option>
+                    <option value="DELIVERY">Delivery</option>
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Validade</label>
-                  <input type="datetime-local" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <input 
+                    type="datetime-local" 
+                    value={newVisitor.validUntil}
+                    onChange={(e) => setNewVisitor({ ...newVisitor, validUntil: e.target.value })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
+                  />
                 </div>
                 <button 
-                  onClick={() => setShowVisitorModal(false)}
-                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20"
+                  onClick={handleAddVisitor}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Gerar Convite Digital
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <QrCode className="w-5 h-5" /> Gerar Convite Digital
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -1568,7 +1681,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [showAddCondoModal, setShowAddCondoModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [newCondo, setNewCondo] = useState({ name: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'] });
+  const [managedCondoId, setManagedCondoId] = useState<string | null>(null);
+  const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
   const [profileData, setProfileData] = useState({
     name: user.name || '',
@@ -1619,8 +1733,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   }, [user.role]);
 
   const handleAddCondo = async () => {
-    if (!newCondo.name || !newCondo.city) {
-      alert("Por favor, preencha o nome e a cidade.");
+    if (!newCondo.name || !newCondo.city || !newCondo.slug) {
+      alert("Por favor, preencha o nome, cidade e slug.");
       return;
     }
     try {
@@ -1628,21 +1742,43 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       const condoData: Condo = {
         id: condoRef.id,
         name: newCondo.name,
+        slug: newCondo.slug.toLowerCase().replace(/\s+/g, '-'),
         city: newCondo.city,
         units: newCondo.units,
         planId: newCondo.planId,
-        subscriptionStatus: 'ACTIVE',
+        subscriptionStatus: newCondo.subscriptionStatus,
+        trialEndsAt: newCondo.subscriptionStatus === 'TRIAL' ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : undefined,
         adminId: '',
         createdAt: new Date().toISOString(),
         address: ''
       };
       await setDoc(condoRef, condoData);
-      await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Cidade: ${newCondo.city}`, 'global');
+      await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Slug: ${condoData.slug}`, 'global');
       setShowAddCondoModal(false);
-      setNewCondo({ name: '', city: '', units: 0, planId: 'BASIC' });
+      setNewCondo({ name: '', slug: '', city: '', units: 0, planId: 'BASIC', subscriptionStatus: 'ACTIVE' });
     } catch (err) {
       console.error("Erro ao adicionar condomínio:", err);
       handleFirestoreError(err, OperationType.CREATE, 'condos');
+    }
+  };
+
+  const handleUpdateCondoStatus = async (condoId: string, status: Condo['subscriptionStatus']) => {
+    try {
+      const condoRef = doc(db, 'condos', condoId);
+      await setDoc(condoRef, { subscriptionStatus: status }, { merge: true });
+      await createAuditLog('Alterou status do condomínio', 'CONDO', condoId, `Novo Status: ${status}`, 'global');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `condos/${condoId}`);
+    }
+  };
+
+  const handleUpdateCondoPlan = async (condoId: string, planId: Condo['planId']) => {
+    try {
+      const condoRef = doc(db, 'condos', condoId);
+      await setDoc(condoRef, { planId }, { merge: true });
+      await createAuditLog('Alterou plano do condomínio', 'CONDO', condoId, `Novo Plano: ${planId}`, 'global');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `condos/${condoId}`);
     }
   };
 
@@ -1690,6 +1826,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     { id: 'audit', label: 'Auditoria', icon: History },
     { id: 'settings', label: 'Configurações', icon: Settings },
     { id: 'profile', label: 'Meu Perfil', icon: UserIcon },
+    { id: 'support', label: 'Suporte SaaS', icon: MessageSquare },
   ];
 
   const stats = [
@@ -1698,6 +1835,35 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     { label: 'Receita Mensal', value: `R$ ${(condos.length * 119).toLocaleString()}`, icon: DollarSign, color: 'bg-green-500' },
     { label: 'Assinaturas Ativas', value: condos.filter(c => c.subscriptionStatus === 'ACTIVE').length, icon: CheckCircle2, color: 'bg-orange-500' },
   ];
+
+  if (managedCondoId) {
+    const managedCondo = condos.find(c => c.id === managedCondoId);
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-slate-900 text-white p-4 flex justify-between items-center sticky top-0 z-50">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setManagedCondoId(null)}
+              className="p-2 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2"
+            >
+              <ArrowRight className="w-5 h-5 rotate-180" /> Voltar ao Painel Geral
+            </button>
+            <div className="h-6 w-px bg-white/20" />
+            <h2 className="font-bold">Gerenciando: <span className="text-blue-400">{managedCondo?.name}</span></h2>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-medium text-white/60">
+            <Shield className="w-4 h-4" /> MODO SUPER ADMIN
+          </div>
+        </div>
+        <Dashboard 
+          user={{ ...user, role: 'CONDO_ADMIN', condoId: managedCondoId }} 
+          onLogout={onLogout} 
+          appSettings={appSettings} 
+          createAuditLog={createAuditLog} 
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex relative">
@@ -1858,24 +2024,103 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                         <tr key={c.id} className="hover:bg-gray-50 transition-all">
                           <td className="px-8 py-4">
                             <p className="font-bold text-slate-800">{c.name}</p>
-                            <p className="text-xs text-gray-400">{c.city}</p>
+                            <p className="text-xs text-gray-400">{c.city} • <span className="font-mono">{c.slug}.condopro.com</span></p>
                           </td>
                           <td className="px-8 py-4">
-                            <span className="text-sm font-bold text-blue-600">{c.planId}</span>
+                            <select 
+                              value={c.planId}
+                              onChange={(e) => handleUpdateCondoPlan(c.id, e.target.value as Condo['planId'])}
+                              className="text-sm font-bold text-blue-600 bg-transparent border-none focus:ring-0 cursor-pointer"
+                            >
+                              <option value="BASIC">BASIC</option>
+                              <option value="PRO">PRO</option>
+                              <option value="PREMIUM">PREMIUM</option>
+                            </select>
                           </td>
                           <td className="px-8 py-4 text-sm font-medium text-gray-600">{c.units}</td>
                           <td className="px-8 py-4">
-                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${c.subscriptionStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                              {c.subscriptionStatus}
-                            </span>
+                            <select 
+                              value={c.subscriptionStatus}
+                              onChange={(e) => handleUpdateCondoStatus(c.id, e.target.value as Condo['subscriptionStatus'])}
+                              className={`text-[10px] font-black uppercase px-3 py-1 rounded-full border-none focus:ring-0 cursor-pointer ${
+                                c.subscriptionStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 
+                                c.subscriptionStatus === 'TRIAL' ? 'bg-blue-100 text-blue-600' : 
+                                'bg-red-100 text-red-600'
+                              }`}
+                            >
+                              <option value="ACTIVE">ACTIVE</option>
+                              <option value="TRIAL">TRIAL</option>
+                              <option value="PAST_DUE">PAST DUE</option>
+                              <option value="CANCELED">CANCELED</option>
+                            </select>
                           </td>
                           <td className="px-8 py-4">
-                            <button className="text-blue-600 hover:underline text-sm font-bold">Gerenciar</button>
+                            <div className="flex items-center gap-4">
+                              <button 
+                                onClick={() => setManagedCondoId(c.id)}
+                                className="text-blue-600 hover:underline text-sm font-bold"
+                              >
+                                Gerenciar
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (window.confirm("Deseja realmente excluir este condomínio?")) {
+                                    // Implementation for delete if needed
+                                  }
+                                }}
+                                className="text-red-400 hover:text-red-600"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'plans' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {PLANS.map((plan) => (
+                    <div key={plan.id} className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-6">
+                        <CreditCard className="w-8 h-8 text-gray-100" />
+                      </div>
+                      <h4 className="text-xl font-black text-slate-800 mb-2">{plan.name}</h4>
+                      <p className="text-3xl font-black text-blue-600 mb-6">R$ {plan.price}<span className="text-sm text-gray-400 font-medium">/mês</span></p>
+                      <ul className="space-y-3">
+                        {plan.features.map((f, i) => (
+                          <li key={i} className="flex items-center gap-2 text-sm text-gray-500 font-medium">
+                            <CheckCircle2 className="w-4 h-4 text-green-500" /> {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6">Faturamento Recente</h3>
+                  <div className="space-y-4">
+                    {condos.filter(c => c.subscriptionStatus === 'ACTIVE').slice(0, 5).map((c, i) => (
+                      <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <DollarSign className="w-5 h-5 text-green-500" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800">{c.name}</p>
+                            <p className="text-xs text-gray-400">Pagamento via PIX • {new Date().toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <p className="font-black text-slate-800">R$ {PLANS.find(p => p.id === c.planId)?.price || 0}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -2079,21 +2324,33 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
               className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-xl font-bold text-slate-800">Novo Condomínio</h3>
+                <h3 className="text-xl font-bold text-slate-800">Novo Condomínio SaaS</h3>
                 <button onClick={() => setShowAddCondoModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-8 space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Condomínio</label>
-                  <input 
-                    type="text" 
-                    value={newCondo.name}
-                    onChange={(e) => setNewCondo({...newCondo, name: e.target.value})}
-                    placeholder="Ex: Residencial Horizon" 
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-                  />
+              <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome</label>
+                    <input 
+                      type="text" 
+                      value={newCondo.name}
+                      onChange={(e) => setNewCondo({...newCondo, name: e.target.value})}
+                      placeholder="Ex: Residencial Horizon" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Subdomínio (Slug)</label>
+                    <input 
+                      type="text" 
+                      placeholder="ex: horizonte" 
+                      value={newCondo.slug}
+                      onChange={(e) => setNewCondo({...newCondo, slug: e.target.value})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cidade</label>
@@ -2127,6 +2384,19 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                       <option value="PREMIUM">Premium</option>
                     </select>
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Status Inicial</label>
+                  <select 
+                    value={newCondo.subscriptionStatus}
+                    onChange={(e) => setNewCondo({...newCondo, subscriptionStatus: e.target.value as any})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="ACTIVE">Ativo</option>
+                    <option value="TRIAL">Trial (7 dias)</option>
+                    <option value="PAST_DUE">Em atraso</option>
+                    <option value="CANCELED">Cancelado</option>
+                  </select>
                 </div>
                 <button 
                   onClick={handleAddCondo}
@@ -2248,6 +2518,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
 
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [detectedCondo, setDetectedCondo] = useState<Condo | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -2264,6 +2535,32 @@ export default function App() {
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'settings/global');
     });
+
+    // Subdomain / Slug Detection
+    const hostname = window.location.hostname;
+    const parts = hostname.split('.');
+    let slug = '';
+    
+    // Check for ?condo= query param as fallback for dev environment
+    const urlParams = new URLSearchParams(window.location.search);
+    const condoParam = urlParams.get('condo');
+
+    if (condoParam) {
+      slug = condoParam;
+    } else if (parts.length > 2 && parts[0] !== 'www') {
+      slug = parts[0];
+    }
+
+    if (slug) {
+      const condosRef = collection(db, 'condos');
+      const q = query(condosRef, where('slug', '==', slug), limit(1));
+      getDocs(q).then(snap => {
+        if (!snap.empty) {
+          setDetectedCondo({ id: snap.docs[0].id, ...snap.docs[0].data() } as Condo);
+        }
+      }).catch(err => console.error("Error detecting condo:", err));
+    }
+
     return () => unsubSettings();
   }, []);
 
@@ -2627,9 +2924,14 @@ export default function App() {
               className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-xl font-bold text-slate-800">
-                  {isResettingPassword ? 'Redefinir Senha' : isRegistering ? 'Criar Conta no CondoPro' : 'Entrar no CondoPro'}
-                </h3>
+                <div className="flex flex-col">
+                  <h3 className="text-xl font-bold text-slate-800">
+                    {isResettingPassword ? 'Redefinir Senha' : isRegistering ? 'Criar Conta' : 'Entrar'}
+                  </h3>
+                  {detectedCondo && (
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Acessando: {detectedCondo.name}</p>
+                  )}
+                </div>
                 <button onClick={() => {
                   setShowLoginModal(false);
                   setIsResettingPassword(false);

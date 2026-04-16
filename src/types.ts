@@ -15,13 +15,24 @@ export interface User {
 export interface Condo {
   id: string;
   name: string;
+  slug: string;
   address: string;
   city: string;
   units: number;
   planId: 'BASIC' | 'PRO' | 'PREMIUM';
-  subscriptionStatus: 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+  subscriptionStatus: 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'TRIAL';
+  trialEndsAt?: string;
   adminId: string;
   createdAt: string;
+}
+
+export interface Payment {
+  id: string;
+  condoId: string;
+  amount: number;
+  status: 'PAID' | 'PENDING' | 'FAILED';
+  method: 'PIX' | 'CARD';
+  date: string;
 }
 
 export interface Resident {
