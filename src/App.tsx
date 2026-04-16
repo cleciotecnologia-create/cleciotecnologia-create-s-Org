@@ -2542,7 +2542,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Erro ao resetar senha:", error);
       let msg = "Erro ao enviar e-mail de redefinição.";
-      if (error.code === 'auth/user-not-found') {
+      
+      if (error.code === 'auth/firebase-app-check-token-is-invalid') {
+        msg = "Erro de App Check: O Firebase está bloqueando o acesso. \n\nSOLUÇÃO: Vá ao Console do Firebase > App Check > APIs e mude o status de 'Authentication' para 'Não imposto' (Unenforced).";
+      } else if (error.code === 'auth/user-not-found') {
         msg = "Usuário não encontrado com este e-mail.";
       } else if (error.code === 'auth/invalid-email') {
         msg = "E-mail inválido.";
