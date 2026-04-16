@@ -86,8 +86,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        (request.auth.token.email == "cleciotecnologia@gmail.com" ||
-         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN'));
+        ((request.auth.token.email == "cleciotecnologia@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN'));
     }
 
     function isCondoAdmin(condoId) {
@@ -136,16 +137,20 @@ service cloud.firestore {
     }
 
     function isValidResident(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'block', 'email', 'phone', 'cpf', 'login', 'status']) &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'block', 'tower', 'email', 'phone', 'cpf', 'login', 'status', 'isOwner', 'ownerId', 'tenantIds']) &&
              data.id is string &&
              data.condoId is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.unit is string &&
              (!('block' in data) || (data.block is string)) &&
+             (!('tower' in data) || (data.tower is string)) &&
              (!('email' in data) || isValidEmail(data.email)) &&
              (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
              (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
-             data.status in ['ACTIVE', 'INACTIVE'];
+             data.status in ['ACTIVE', 'INACTIVE'] &&
+             (!('isOwner' in data) || data.isOwner is bool) &&
+             (!('ownerId' in data) || data.ownerId is string) &&
+             (!('tenantIds' in data) || data.tenantIds is list);
     }
 
     function isValidOccurrence(data) {
@@ -194,6 +199,19 @@ service cloud.firestore {
              (!('deliveredAt' in data) || isValidDateString(data.deliveredAt));
     }
 
+    function isValidVisitor(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'name', 'cpf', 'type', 'status', 'validUntil', 'qrCode']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.name is string &&
+             (!('cpf' in data) || data.cpf is string) &&
+             data.type in ['VISITOR', 'SERVICE', 'DELIVERY'] &&
+             data.status in ['PENDING', 'AUTHORIZED', 'EXPIRED'] &&
+             isValidDateString(data.validUntil) &&
+             (!('qrCode' in data) || data.qrCode is string);
+    }
+
     function isValidAssembly(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'startDate', 'endDate', 'status', 'items', 'createdAt']) &&
              data.id is string &&
@@ -230,6 +248,7 @@ service cloud.firestore {
              data.id is string &&
              data.condoId is string &&
              data.residentId is string &&
+             data.residentName is string &&
              data.unit is string &&
              data.previousReading is number &&
              data.currentReading is number &&
@@ -246,6 +265,8 @@ service cloud.firestore {
              data.id is string &&
              data.condoId is string &&
              data.residentId is string &&
+             data.residentName is string &&
+             data.unit is string &&
              data.type in ['WARNING', 'FINE'] &&
              data.description is string && data.description.size() > 0 &&
              (!('value' in data) || data.value is number) &&
