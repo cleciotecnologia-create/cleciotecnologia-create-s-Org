@@ -360,6 +360,17 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     validUntil: ''
   });
   const [visitorSuccess, setVisitorSuccess] = useState<Visitor | null>(null);
+  const [showFaceIDModal, setShowFaceIDModal] = useState(false);
+  const [faceIDStep, setFaceIDStep] = useState(0);
+
+  const handleFaceIDRegistration = () => {
+    setShowFaceIDModal(true);
+    setFaceIDStep(0);
+    // Simular passos
+    setTimeout(() => setFaceIDStep(1), 2000);
+    setTimeout(() => setFaceIDStep(2), 4000);
+    setTimeout(() => setFaceIDStep(3), 6000);
+  };
 
   const handleShareVisitor = (visitor: any) => {
     const typeLabel = visitor.type === 'VISITOR' ? 'Visitante' : visitor.type === 'SERVICE' ? 'Prestador de Serviço' : 'Delivery';
@@ -1989,7 +2000,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <p className="text-slate-400 mb-6 max-w-md">
                       Cadastre sua face para acesso rápido e seguro. Nossa tecnologia de reconhecimento facial garante que apenas pessoas autorizadas entrem no condomínio.
                     </p>
-                    <button className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2">
+                    <button 
+                      onClick={handleFaceIDRegistration}
+                      className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2"
+                    >
                       <Smartphone className="w-5 h-5" /> Cadastrar Face ID
                     </button>
                   </div>
@@ -2006,7 +2020,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <p className="text-gray-600 mb-6 max-w-md">
                       Gere um QR Code temporário e envie para seu visitante. Ele poderá liberar a entrada diretamente no leitor da portaria.
                     </p>
-                    <button className="bg-primary text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-105 transition-all">
+                    <button 
+                      onClick={() => setShowVisitorModal(true)}
+                      className="bg-primary text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-105 transition-all"
+                    >
                       Gerar QR Code de Acesso
                     </button>
                   </div>
@@ -3245,6 +3262,76 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   </>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Face ID Registration Modal */}
+      <AnimatePresence>
+        {showFaceIDModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowFaceIDModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-10 text-center"
+            >
+              <button 
+                onClick={() => setShowFaceIDModal(false)}
+                className="absolute top-6 right-6 p-2 hover:bg-gray-100 rounded-full text-gray-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="mb-8">
+                <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6 relative">
+                  <Shield className={`w-12 h-12 text-blue-600 ${faceIDStep < 3 ? 'animate-pulse' : ''}`} />
+                  {faceIDStep < 3 && (
+                    <motion.div 
+                      className="absolute inset-0 border-4 border-blue-500 rounded-full"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    />
+                  )}
+                </div>
+                <h3 className="text-2xl font-black text-slate-800 mb-2">
+                  {faceIDStep === 0 && "Iniciando Scan..."}
+                  {faceIDStep === 1 && "Mova a Cabeça..."}
+                  {faceIDStep === 2 && "Finalizando..."}
+                  {faceIDStep === 3 && "Face ID Ativo!"}
+                </h3>
+                <p className="text-slate-500 text-sm">
+                  {faceIDStep === 0 && "Posicione seu rosto dentro do círculo."}
+                  {faceIDStep === 1 && "Gire levemente para capturar todos os ângulos."}
+                  {faceIDStep === 2 && "Processando informações biométricas."}
+                  {faceIDStep === 3 && "Seu acesso via reconhecimento facial foi configurado."}
+                </p>
+              </div>
+
+              {faceIDStep === 3 ? (
+                <button 
+                  onClick={() => setShowFaceIDModal(false)}
+                  className="w-full py-4 bg-green-500 text-white rounded-2xl font-bold shadow-lg shadow-green-500/20 hover:scale-105 transition-all"
+                >
+                  Concluir
+                </button>
+              ) : (
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <motion.div 
+                    className="h-full bg-blue-600"
+                    initial={{ width: "0%" }}
+                    animate={{ width: `${(faceIDStep / 3) * 100}%` }}
+                  />
+                </div>
+              )}
             </motion.div>
           </div>
         )}
