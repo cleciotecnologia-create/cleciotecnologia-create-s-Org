@@ -108,6 +108,42 @@ export interface AuditLog {
   timestamp: string;
 }
 
+export interface Announcement {
+  id: string;
+  condoId: string;
+  title: string;
+  content: string;
+  category: 'GENERAL' | 'MAINTENANCE' | 'SECURITY' | 'EVENT';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  createdAt: string;
+  authorName: string;
+}
+
+export interface Package {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  unit: string;
+  description: string;
+  carrier: string;
+  status: 'PENDING' | 'DELIVERED' | 'RETURNED';
+  receivedAt: string;
+  deliveredAt?: string;
+}
+
+export interface Invoice {
+  id: string;
+  condoId: string;
+  residentId: string;
+  amount: number;
+  dueDate: string;
+  status: 'PAID' | 'PENDING' | 'OVERDUE';
+  type: 'CONDO_FEE' | 'RESERVE_FUND' | 'EXTRA';
+  description: string;
+  paymentDate?: string;
+}
+
 export interface Plan {
   id: string;
   name: string;
@@ -120,22 +156,22 @@ export const PLANS: Plan[] = [
   {
     id: 'BASIC',
     name: 'Básico',
-    price: 59,
+    price: 49,
     maxUnits: 30,
     features: ['Cadastro de moradores', 'Comunicados', 'App do morador', 'Notificações']
   },
   {
     id: 'PRO',
     name: 'Profissional',
-    price: 119,
+    price: 89,
     maxUnits: 100,
     features: ['Tudo do básico', 'Reservas de áreas', 'Controle de visitantes', 'Relatórios', 'Suporte prioritário']
   },
   {
     id: 'PREMIUM',
     name: 'Premium',
-    price: 199,
+    price: 119,
     maxUnits: 9999,
-    features: ['Tudo incluso', 'Financeiro completo', 'Integrações', 'Personalização', 'Suporte VIP']
+    features: ['Tudo incluso', 'Financeiro completo', 'Controle de encomendas', 'Personalização', 'Suporte VIP']
   }
 ];

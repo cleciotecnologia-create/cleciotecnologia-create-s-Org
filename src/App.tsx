@@ -4,11 +4,15 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
-  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon
+  ArrowRight, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
+  Megaphone, Package as PackageIcon, FileText, PieChart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, ChatMessage, AuditLog, PLANS, Plan } from './types';
+import { 
+  User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
+  ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice 
+} from './types';
 import { auth, db } from './firebase';
 import { 
   onAuthStateChanged, 
@@ -292,6 +296,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -346,6 +353,30 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatMessage)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/messages`));
 
+    const announcementsRef = collection(db, 'condos', user.condoId, 'announcements');
+    const announcementsQuery = query(announcementsRef, orderBy('createdAt', 'desc'), limit(20));
+    const unsubAnnouncements = onSnapshot(announcementsQuery, (snap) => {
+      setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/announcements`));
+
+    const packagesRef = collection(db, 'condos', user.condoId, 'packages');
+    let packagesQuery = query(packagesRef, orderBy('receivedAt', 'desc'), limit(50));
+    if (user.role === 'RESIDENT') {
+      packagesQuery = query(packagesRef, where('residentId', '==', user.id), orderBy('receivedAt', 'desc'), limit(50));
+    }
+    const unsubPackages = onSnapshot(packagesQuery, (snap) => {
+      setPackages(snap.docs.map(d => ({ id: d.id, ...d.data() } as Package)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/packages`));
+
+    const invoicesRef = collection(db, 'condos', user.condoId, 'invoices');
+    let invoicesQuery = query(invoicesRef, orderBy('dueDate', 'desc'), limit(50));
+    if (user.role === 'RESIDENT') {
+      invoicesQuery = query(invoicesRef, where('residentId', '==', user.id), orderBy('dueDate', 'desc'), limit(50));
+    }
+    const unsubInvoices = onSnapshot(invoicesQuery, (snap) => {
+      setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/invoices`));
+
     const auditLogsRef = collection(db, 'condos', user.condoId, 'auditLogs');
     const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
     let unsubAuditLogs = () => {};
@@ -361,6 +392,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       unsubOccurrences();
       unsubVisitors();
       unsubMessages();
+      unsubAnnouncements();
+      unsubPackages();
+      unsubInvoices();
       unsubAuditLogs();
     };
   }, [user.condoId]);
@@ -464,16 +498,24 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
 
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'announcements', label: 'Comunicados', icon: Megaphone },
     { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
-    { id: 'residents', label: 'Moradores', icon: Users },
+    { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
     { id: 'reservations', label: 'Reservas', icon: Calendar },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield },
+    { id: 'packages', label: 'Encomendas', icon: PackageIcon },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
-    { id: 'subscription', label: 'Assinatura', icon: CreditCard },
-    { id: 'audit', label: 'Auditoria', icon: History },
-    { id: 'settings', label: 'Configurações', icon: Settings },
+    { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
+    { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true },
+    { id: 'audit', label: 'Auditoria', icon: History, adminOnly: true },
+    { id: 'settings', label: 'Configurações', icon: Settings, adminOnly: true },
   ];
+
+  const filteredMenuItems = menuItems.filter(item => {
+    if (item.adminOnly && user.role === 'RESIDENT') return false;
+    return true;
+  });
 
   const currentCondoName = condo?.name || MOCK_CONDO.name;
 
@@ -546,7 +588,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
         </div>
         
         <nav className="flex-grow p-4 space-y-1 mt-4">
-          {menuItems.map((item) => (
+          {filteredMenuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveMenu(item.id)}
@@ -1057,55 +1099,293 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
               </motion.div>
             )}
 
-            {activeMenu === 'finance' && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Receita Mensal</p>
-                    <p className="text-3xl font-black text-primary">R$ 42.500,00</p>
-                    <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
-                      <ArrowRight className="w-3 h-3 -rotate-45" /> +12% vs mês anterior
-                    </p>
-                  </div>
-                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Inadimplência</p>
-                    <p className="text-3xl font-black text-red-500">R$ 1.840,00</p>
-                    <p className="text-xs text-red-400 font-bold mt-2">4 moradores pendentes</p>
-                  </div>
-                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Fundo de Reserva</p>
-                    <p className="text-3xl font-black text-green-600">R$ 128.400,00</p>
-                    <p className="text-xs text-gray-400 font-bold mt-2">Meta: R$ 150k</p>
-                  </div>
+            {activeMenu === 'announcements' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-slate-800">Comunicados</h3>
+                  {user.role !== 'RESIDENT' && (
+                    <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                      <Plus className="w-5 h-5" /> Novo Comunicado
+                    </button>
+                  )}
                 </div>
-
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-primary">Fluxo de Caixa Recente</h3>
-                    <button className="bg-primary/10 text-primary px-4 py-2 rounded-xl text-xs font-bold">Exportar PDF</button>
-                  </div>
-                  <div className="divide-y divide-gray-100">
-                    {[
-                      { desc: 'Taxa Condominial - Unid 101A', val: '+ R$ 450,00', date: '12/04', type: 'IN' },
-                      { desc: 'Manutenção Elevadores', val: '- R$ 1.200,00', date: '11/04', type: 'OUT' },
-                      { desc: 'Energia Áreas Comuns', val: '- R$ 3.400,00', date: '10/04', type: 'OUT' },
-                      { desc: 'Taxa Condominial - Unid 202B', val: '+ R$ 450,00', date: '10/04', type: 'IN' },
-                    ].map((item, i) => (
-                      <div key={i} className="px-8 py-4 flex justify-between items-center hover:bg-gray-50 transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'IN' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                            {item.type === 'IN' ? <Plus className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                <div className="grid grid-cols-1 gap-6">
+                  {announcements.length === 0 ? (
+                    <div className="bg-white p-20 rounded-[2.5rem] text-center border border-slate-200/60">
+                      <Megaphone className="w-16 h-16 mx-auto mb-4 text-slate-200" />
+                      <p className="text-slate-400 font-bold">Nenhum comunicado no momento.</p>
+                    </div>
+                  ) : (
+                    announcements.map((ann) => (
+                      <div key={ann.id} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60 hover:shadow-md transition-all">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${
+                              ann.category === 'MAINTENANCE' ? 'bg-orange-100 text-orange-600' :
+                              ann.category === 'SECURITY' ? 'bg-red-100 text-red-600' :
+                              ann.category === 'EVENT' ? 'bg-purple-100 text-purple-600' :
+                              'bg-blue-100 text-blue-600'
+                            }`}>
+                              <Megaphone className="w-5 h-5" />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{ann.category}</span>
                           </div>
-                          <div>
-                            <p className="font-bold text-primary">{item.desc}</p>
-                            <p className="text-xs text-gray-400">{item.date}</p>
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{new Date(ann.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <h4 className="text-xl font-bold text-slate-800 mb-2">{ann.title}</h4>
+                        <p className="text-slate-600 leading-relaxed mb-6">{ann.content}</p>
+                        <div className="flex justify-between items-center pt-6 border-t border-slate-100">
+                          <p className="text-xs font-bold text-slate-400">Por: <span className="text-slate-800">{ann.authorName}</span></p>
+                          {ann.priority === 'HIGH' && (
+                            <span className="flex items-center gap-1 text-[10px] font-black text-red-600 uppercase tracking-widest">
+                              <AlertTriangle className="w-3 h-3" /> Alta Prioridade
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'packages' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-slate-800">Controle de Encomendas</h3>
+                  {user.role !== 'RESIDENT' && (
+                    <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                      <Plus className="w-5 h-5" /> Registrar Encomenda
+                    </button>
+                  )}
+                </div>
+                <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Morador / Unidade</th>
+                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Descrição / Transportadora</th>
+                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Recebido em</th>
+                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Status</th>
+                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {packages.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold">Nenhuma encomenda encontrada.</td>
+                        </tr>
+                      ) : (
+                        packages.map((pkg) => (
+                          <tr key={pkg.id} className="hover:bg-slate-50 transition-all">
+                            <td className="px-8 py-6">
+                              <p className="font-bold text-slate-800">{pkg.residentName}</p>
+                              <p className="text-xs text-slate-400">Apto {pkg.unit}</p>
+                            </td>
+                            <td className="px-8 py-6">
+                              <p className="text-sm font-medium text-slate-600">{pkg.description}</p>
+                              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{pkg.carrier}</p>
+                            </td>
+                            <td className="px-8 py-6 text-sm text-slate-500">
+                              {new Date(pkg.receivedAt).toLocaleString()}
+                            </td>
+                            <td className="px-8 py-6">
+                              <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-full ${
+                                pkg.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
+                                pkg.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-600' :
+                                'bg-slate-100 text-slate-600'
+                              }`}>
+                                {pkg.status === 'PENDING' ? 'Aguardando Retirada' : 
+                                 pkg.status === 'DELIVERED' ? 'Entregue' : 'Devolvido'}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6">
+                              {pkg.status === 'PENDING' && user.role !== 'RESIDENT' && (
+                                <button className="text-blue-600 font-bold text-sm hover:underline">Confirmar Entrega</button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'reports' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-slate-800">Relatórios & Insights</h3>
+                  <button className="bg-white text-slate-800 border border-slate-200 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all">
+                    <FileText className="w-5 h-5" /> Exportar Relatório Geral
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                    <div className="flex justify-between items-center mb-8">
+                      <h4 className="font-bold text-slate-800">Ocupação de Áreas Comuns</h4>
+                      <PieChart className="w-5 h-5 text-slate-400" />
+                    </div>
+                    <div className="space-y-6">
+                      {[
+                        { label: 'Salão de Festas', val: 85, color: 'bg-blue-500' },
+                        { label: 'Churrasqueira', val: 62, color: 'bg-emerald-500' },
+                        { label: 'Quadra', val: 45, color: 'bg-purple-500' },
+                        { label: 'Piscina', val: 30, color: 'bg-orange-500' },
+                      ].map((item, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
+                            <span className="text-slate-400">{item.label}</span>
+                            <span className="text-slate-800">{item.val}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className={`h-full ${item.color}`} style={{ width: `${item.val}%` }}></div>
                           </div>
                         </div>
-                        <span className={`font-black ${item.type === 'IN' ? 'text-green-600' : 'text-red-600'}`}>{item.val}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                    <div className="flex justify-between items-center mb-8">
+                      <h4 className="font-bold text-slate-800">Inadimplência por Bloco</h4>
+                      <BarChart3 className="w-5 h-5 text-slate-400" />
+                    </div>
+                    <div className="flex items-end justify-between h-48 gap-4 px-4">
+                      {[
+                        { label: 'A', val: 40 },
+                        { label: 'B', val: 70 },
+                        { label: 'C', val: 30 },
+                        { label: 'D', val: 90 },
+                        { label: 'E', val: 55 },
+                      ].map((item, i) => (
+                        <div key={i} className="flex-grow flex flex-col items-center gap-3">
+                          <div className="w-full bg-blue-100 rounded-t-xl relative group" style={{ height: `${item.val}%` }}>
+                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                              {item.val}%
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-black text-slate-400 uppercase">{item.label}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'finance' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                {user.role !== 'RESIDENT' ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Receita Mensal</p>
+                        <p className="text-3xl font-black text-slate-800">R$ 42.500,00</p>
+                        <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
+                          <ArrowRight className="w-3 h-3 -rotate-45" /> +12% vs mês anterior
+                        </p>
+                      </div>
+                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Inadimplência</p>
+                        <p className="text-3xl font-black text-red-500">R$ 1.840,00</p>
+                        <p className="text-xs text-red-400 font-bold mt-2">4 moradores pendentes</p>
+                      </div>
+                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Fundo de Reserva</p>
+                        <p className="text-3xl font-black text-green-600">R$ 128.400,00</p>
+                        <p className="text-xs text-gray-400 font-bold mt-2">Meta: R$ 150k</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                      <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                        <h3 className="text-lg font-bold text-slate-800">Fluxo de Caixa Recente</h3>
+                        <button className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold">Exportar PDF</button>
+                      </div>
+                      <div className="divide-y divide-gray-100">
+                        {[
+                          { desc: 'Taxa Condominial - Unid 101A', val: '+ R$ 450,00', date: '12/04', type: 'IN' },
+                          { desc: 'Manutenção Elevadores', val: '- R$ 1.200,00', date: '11/04', type: 'OUT' },
+                          { desc: 'Energia Áreas Comuns', val: '- R$ 3.400,00', date: '10/04', type: 'OUT' },
+                          { desc: 'Taxa Condominial - Unid 202B', val: '+ R$ 450,00', date: '10/04', type: 'IN' },
+                        ].map((item, i) => (
+                          <div key={i} className="px-8 py-4 flex justify-between items-center hover:bg-gray-50 transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'IN' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                {item.type === 'IN' ? <Plus className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-800">{item.desc}</p>
+                                <p className="text-xs text-gray-400">{item.date}</p>
+                              </div>
+                            </div>
+                            <span className={`font-black ${item.type === 'IN' ? 'text-green-600' : 'text-red-600'}`}>{item.val}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden">
+                      <div className="relative z-10">
+                        <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Próximo Vencimento</p>
+                        <h3 className="text-4xl font-black mb-6">R$ 450,00</h3>
+                        <div className="flex items-center gap-4">
+                          <button className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20">
+                            Pagar com PIX
+                          </button>
+                          <button className="bg-white/10 text-white px-8 py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10">
+                            Copiar Código
+                          </button>
+                        </div>
+                      </div>
+                      <DollarSign className="absolute -right-10 -bottom-10 w-64 h-64 text-white/5" />
+                    </div>
+
+                    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                      <div className="p-8 border-b border-slate-100">
+                        <h3 className="text-lg font-bold text-slate-800">Meus Boletos</h3>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {invoices.length === 0 ? (
+                          <div className="p-10 text-center text-slate-400 font-bold">Nenhum boleto encontrado.</div>
+                        ) : (
+                          invoices.map((inv) => (
+                            <div key={inv.id} className="px-8 py-6 flex justify-between items-center hover:bg-slate-50 transition-all">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                                  inv.status === 'PAID' ? 'bg-emerald-100 text-emerald-600' :
+                                  inv.status === 'OVERDUE' ? 'bg-red-100 text-red-600' :
+                                  'bg-blue-100 text-blue-600'
+                                }`}>
+                                  <FileText className="w-6 h-6" />
+                                </div>
+                                <div>
+                                  <p className="font-bold text-slate-800">{inv.description}</p>
+                                  <p className="text-xs text-slate-400">Vencimento: {new Date(inv.dueDate).toLocaleDateString()}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-black text-slate-800">R$ {inv.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${
+                                  inv.status === 'PAID' ? 'bg-emerald-100 text-emerald-600' :
+                                  inv.status === 'OVERDUE' ? 'bg-red-100 text-red-600' :
+                                  'bg-blue-100 text-blue-600'
+                                }`}>
+                                  {inv.status === 'PAID' ? 'Pago' : inv.status === 'OVERDUE' ? 'Atrasado' : 'Pendente'}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
