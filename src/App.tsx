@@ -2469,11 +2469,17 @@ export default function App() {
     } catch (error: any) {
       console.error("Erro no login:", error);
       let msg = "Falha ao entrar. Verifique suas credenciais.";
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        msg = "Email ou senha incorretos.";
+      
+      if (error.code === 'auth/firebase-app-check-token-is-invalid') {
+        msg = "ERRO CRÍTICO: O Firebase App Check está bloqueando o acesso.\n\nCOMO RESOLVER:\n1. Vá ao Console do Firebase\n2. Menu Build > App Check > APIs\n3. Mude 'Authentication' para 'Não imposto' (Unenforced).\n4. Mude 'Cloud Firestore' para 'Não imposto' (Unenforced).";
+      } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        msg = "Email, usuário ou senha incorretos.";
       } else if (error.code === 'auth/invalid-email') {
         msg = "Email inválido.";
+      } else if (error.code === 'auth/too-many-requests') {
+        msg = "Muitas tentativas de login. Tente novamente mais tarde.";
       }
+      
       alert(msg);
     } finally {
       setIsLoading(false);
@@ -2515,7 +2521,11 @@ export default function App() {
       setShowLoginModal(false);
     } catch (error: any) {
       console.error("Erro no cadastro:", error);
-      alert("Erro ao criar conta: " + error.message);
+      let msg = "Erro ao criar conta: " + error.message;
+      if (error.code === 'auth/firebase-app-check-token-is-invalid') {
+        msg = "ERRO CRÍTICO: O Firebase App Check está bloqueando o acesso.\n\nCOMO RESOLVER:\n1. Vá ao Console do Firebase\n2. Menu Build > App Check > APIs\n3. Mude 'Authentication' para 'Não imposto' (Unenforced).\n4. Mude 'Cloud Firestore' para 'Não imposto' (Unenforced).";
+      }
+      alert(msg);
     } finally {
       setIsLoading(false);
     }
