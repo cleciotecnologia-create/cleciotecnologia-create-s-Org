@@ -834,7 +834,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex relative">
+    <div className="h-screen bg-gray-50 flex relative overflow-hidden">
       {isTrial && (
         <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white py-2 px-4 text-center text-xs font-bold z-[60] shadow-lg">
           PERÍODO DE TESTE: Sua licença expira em {new Date(condo.trialEndsAt || '').toLocaleDateString()}. <button className="underline ml-2">Assinar Agora</button>
@@ -3392,7 +3392,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex relative">
+    <div className="h-screen bg-gray-50 flex relative overflow-hidden">
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
