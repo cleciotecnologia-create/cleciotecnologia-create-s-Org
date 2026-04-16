@@ -174,10 +174,53 @@ service cloud.firestore {
              data.userId is string &&
              data.userName is string &&
              data.action is string &&
-             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'OCCURRENCE', 'VISITOR'] &&
+             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE'] &&
              (!('resourceId' in data) || data.resourceId is string) &&
              (!('details' in data) || data.details is string) &&
              isValidDateString(data.timestamp);
+    }
+
+    function isValidPackage(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'residentName', 'unit', 'description', 'carrier', 'status', 'receivedAt', 'deliveredAt', 'qrCodeData']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.residentName is string &&
+             data.unit is string &&
+             data.status in ['PENDING', 'DELIVERED', 'RETURNED'] &&
+             isValidDateString(data.receivedAt) &&
+             (!('deliveredAt' in data) || isValidDateString(data.deliveredAt));
+    }
+
+    function isValidAssembly(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'startDate', 'endDate', 'status', 'items', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.title is string && data.title.size() > 0 &&
+             data.status in ['SCHEDULED', 'ACTIVE', 'CLOSED'] &&
+             isValidDateString(data.startDate) &&
+             isValidDateString(data.endDate) &&
+             data.items is list;
+    }
+
+    function isValidMaintenanceTask(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'category', 'frequency', 'lastDoneAt', 'nextDueDate', 'status']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.title is string &&
+             data.category in ['ELEVATOR', 'GATE', 'PUMP', 'ELECTRICAL', 'OTHER'] &&
+             data.frequency in ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] &&
+             isValidDateString(data.nextDueDate) &&
+             data.status in ['PENDING', 'COMPLETED', 'OVERDUE'];
+    }
+
+    function isValidCondoScore(data) {
+      return hasOnlyAllowedFields(['condoId', 'score', 'delinquencyRate', 'lastUpdated', 'trends']) &&
+             data.condoId is string &&
+             data.score is number &&
+             data.delinquencyRate is number &&
+             isValidDateString(data.lastUpdated) &&
+             data.trends is list;
     }
 
     // ===============================================================
@@ -273,6 +316,30 @@ service cloud.firestore {
                       request.resource.data.condoId == condoId &&
                       request.resource.data.userId == request.auth.uid;
       allow update, delete: if false; // Audit logs are immutable
+    }
+
+    match /condos/{condoId}/packages/{packageId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create: if (isAdmin() || isCondoAdmin(condoId)) && isValidPackage(request.resource.data);
+      allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidPackage(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/assemblies/{assemblyId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidAssembly(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/maintenance/{taskId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMaintenanceTask(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/stats/score {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow write: if isAdmin(); // Only Super Admin (or backend) should update scores
     }
 
     match /test/{docId} {

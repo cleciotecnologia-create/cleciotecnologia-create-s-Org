@@ -130,6 +130,44 @@ export interface Package {
   status: 'PENDING' | 'DELIVERED' | 'RETURNED';
   receivedAt: string;
   deliveredAt?: string;
+  qrCodeData?: string;
+}
+
+export interface Assembly {
+  id: string;
+  condoId: string;
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  status: 'SCHEDULED' | 'ACTIVE' | 'CLOSED';
+  items: {
+    id: string;
+    question: string;
+    options: string[];
+    votes: { [unit: string]: number }; // unit -> option index
+  }[];
+  createdAt: string;
+}
+
+export interface MaintenanceTask {
+  id: string;
+  condoId: string;
+  title: string;
+  description: string;
+  category: 'ELEVATOR' | 'GATE' | 'PUMP' | 'ELECTRICAL' | 'OTHER';
+  frequency: 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+  lastDoneAt?: string;
+  nextDueDate: string;
+  status: 'PENDING' | 'COMPLETED' | 'OVERDUE';
+}
+
+export interface CondoScore {
+  condoId: string;
+  score: number;
+  delinquencyRate: number;
+  lastUpdated: string;
+  trends: { date: string; score: number }[];
 }
 
 export interface Invoice {

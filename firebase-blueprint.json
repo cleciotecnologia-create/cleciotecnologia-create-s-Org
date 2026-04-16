@@ -120,12 +120,78 @@
         "userId": { "type": "string" },
         "userName": { "type": "string" },
         "action": { "type": "string" },
-        "resourceType": { "type": "string", "enum": ["RESIDENT", "CONDO", "PAYMENT", "OCCURRENCE", "VISITOR"] },
+        "resourceType": { "type": "string", "enum": ["RESIDENT", "CONDO", "PAYMENT", "OCCURRENCE", "VISITOR", "ASSEMBLY", "MAINTENANCE"] },
         "resourceId": { "type": "string" },
         "details": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "condoId", "userId", "userName", "action", "resourceType", "timestamp"]
+    },
+    "Package": {
+      "title": "Package",
+      "description": "Package delivery tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "unit": { "type": "string" },
+        "description": { "type": "string" },
+        "carrier": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "DELIVERED", "RETURNED"] },
+        "receivedAt": { "type": "string", "format": "date-time" },
+        "deliveredAt": { "type": "string", "format": "date-time" },
+        "qrCodeData": { "type": "string" }
+      },
+      "required": ["id", "condoId", "residentId", "residentName", "unit", "status", "receivedAt"]
+    },
+    "Assembly": {
+      "title": "Assembly",
+      "description": "Digital assembly and voting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["SCHEDULED", "ACTIVE", "CLOSED"] },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "title", "status", "startDate", "endDate"]
+    },
+    "MaintenanceTask": {
+      "title": "MaintenanceTask",
+      "description": "Preventive maintenance scheduling",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["ELEVATOR", "GATE", "PUMP", "ELECTRICAL", "OTHER"] },
+        "frequency": { "type": "string", "enum": ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"] },
+        "lastDoneAt": { "type": "string", "format": "date-time" },
+        "nextDueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED", "OVERDUE"] }
+      },
+      "required": ["id", "condoId", "title", "category", "frequency", "nextDueDate", "status"]
+    },
+    "CondoScore": {
+      "title": "CondoScore",
+      "description": "Intelligent delinquency and health score",
+      "type": "object",
+      "properties": {
+        "condoId": { "type": "string" },
+        "score": { "type": "number" },
+        "delinquencyRate": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "trends": { "type": "array" }
+      },
+      "required": ["condoId", "score", "delinquencyRate", "lastUpdated"]
     }
   },
   "firestore": {
@@ -160,6 +226,22 @@
     "/condos/{condoId}/auditLogs/{logId}": {
       "schema": "AuditLog",
       "description": "Audit logs for administrative actions"
+    },
+    "/condos/{condoId}/packages/{packageId}": {
+      "schema": "Package",
+      "description": "Package delivery tracking"
+    },
+    "/condos/{condoId}/assemblies/{assemblyId}": {
+      "schema": "Assembly",
+      "description": "Digital assemblies"
+    },
+    "/condos/{condoId}/maintenance/{taskId}": {
+      "schema": "MaintenanceTask",
+      "description": "Maintenance tasks"
+    },
+    "/condos/{condoId}/stats/score": {
+      "schema": "CondoScore",
+      "description": "Condo health score"
     }
   }
 }

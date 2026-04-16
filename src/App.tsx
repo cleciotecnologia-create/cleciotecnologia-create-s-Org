@@ -5,13 +5,35 @@ import {
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
   ArrowRight, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
-  Megaphone, Package as PackageIcon, FileText, PieChart
+  Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
+  TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
+  Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
+  Smile, Frown, Meh, Briefcase, Key, Target, Award
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line, 
+  AreaChart, 
+  Area, 
+  Cell, 
+  PieChart as RePieChart, 
+  Pie 
+} from 'recharts';
+import { format, addDays, isAfter, isBefore, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { 
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
-  ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice 
+  ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
+  Assembly, MaintenanceTask, CondoScore
 } from './types';
 import { auth, db } from './firebase';
 import { 
@@ -97,7 +119,7 @@ const MOCK_OCCURRENCES: Occurrence[] = [
 
 // --- Components ---
 
-const LandingPage = ({ onLogin, onShowLoginModal }: { onLogin: () => void, onShowLoginModal: () => void }) => {
+const LandingPage = ({ onLogin, onShowLoginModal, plans }: { onLogin: () => void, onShowLoginModal: () => void, plans: Plan[] }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
@@ -215,7 +237,7 @@ const LandingPage = ({ onLogin, onShowLoginModal }: { onLogin: () => void, onSho
             <p className="text-gray-600">Escolha a melhor opção para o tamanho do seu condomínio.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {PLANS.map((plan) => (
+            {plans.map((plan) => (
               <div key={plan.id} className={`p-10 rounded-[2.5rem] border-2 flex flex-col ${plan.id === 'PRO' ? 'border-primary bg-primary text-white shadow-2xl shadow-primary/30 scale-105 z-10' : 'border-gray-100 bg-white text-primary'}`}>
                 {plan.id === 'PRO' && <span className="bg-white text-primary text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full w-fit mb-6">Mais Escolhido</span>}
                 <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
@@ -281,13 +303,14 @@ const LandingPage = ({ onLogin, onShowLoginModal }: { onLogin: () => void, onSho
   );
 };
 
-const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void> }) => {
+const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'CARD'>('PIX');
   const [showVisitorModal, setShowVisitorModal] = useState(false);
   const [selectedVisitorForQR, setSelectedVisitorForQR] = useState<any>(null);
+  const [selectedPackageForQR, setSelectedPackageForQR] = useState<Package | null>(null);
   const [visitorRequests, setVisitorRequests] = useState([
     { id: 'req1', name: 'Marcos Oliveira', type: 'Prestador de Serviço', reason: 'Manutenção Ar Condicionado', time: '10:30' },
   ]);
@@ -299,6 +322,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [assemblies, setAssemblies] = useState<Assembly[]>([]);
+  const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
+  const [condoScore, setCondoScore] = useState<CondoScore | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -386,6 +412,83 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
     }
 
+    const assembliesRef = collection(db, 'condos', user.condoId, 'assemblies');
+    const unsubAssemblies = onSnapshot(assembliesRef, (snap) => {
+      setAssemblies(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assembly)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/assemblies`));
+
+    const maintenanceRef = collection(db, 'condos', user.condoId, 'maintenance');
+    const unsubMaintenance = onSnapshot(maintenanceRef, (snap) => {
+      setMaintenanceTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as MaintenanceTask)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/maintenance`));
+
+    const scoreRef = doc(db, 'condos', user.condoId, 'stats', 'score');
+    const unsubScore = onSnapshot(scoreRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setCondoScore({ condoId: user.condoId!, ...docSnap.data() } as CondoScore);
+      } else {
+        // Initial mock score
+        setCondoScore({
+          condoId: user.condoId!,
+          score: 85,
+          delinquencyRate: 4.2,
+          lastUpdated: new Date().toISOString(),
+          trends: [
+            { date: '2024-01', score: 78 },
+            { date: '2024-02', score: 82 },
+            { date: '2024-03', score: 80 },
+            { date: '2024-04', score: 85 },
+          ]
+        });
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, `condos/${user.condoId}/stats/score`));
+
+    // Mock Assemblies if empty
+    const mockAssemblies: Assembly[] = [
+      {
+        id: 'a1',
+        condoId: user.condoId,
+        title: 'Aprovação de Contas 2023',
+        description: 'Votação para aprovação do balancete anual e previsão orçamentária 2024.',
+        startDate: new Date().toISOString(),
+        endDate: addDays(new Date(), 7).toISOString(),
+        status: 'ACTIVE',
+        items: [
+          {
+            id: 'i1',
+            question: 'Você aprova as contas do exercício 2023?',
+            options: ['Sim, aprovo integralmente', 'Aprovo com ressalvas', 'Não aprovo'],
+            votes: { '101A': 0, '202B': 0, '303C': 1, '404D': 0 }
+          }
+        ],
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    // Mock Maintenance if empty
+    const mockMaintenance: MaintenanceTask[] = [
+      {
+        id: 'm1',
+        condoId: user.condoId,
+        title: 'Manutenção Elevadores',
+        description: 'Revisão mensal obrigatória - Elevadores Sociais e Serviço',
+        category: 'ELEVATOR',
+        frequency: 'MONTHLY',
+        nextDueDate: addDays(new Date(), 5).toISOString(),
+        status: 'PENDING'
+      },
+      {
+        id: 'm2',
+        condoId: user.condoId,
+        title: 'Limpeza Caixa D\'água',
+        description: 'Higienização semestral das torres A e B',
+        category: 'PUMP',
+        frequency: 'QUARTERLY',
+        nextDueDate: addDays(new Date(), -2).toISOString(),
+        status: 'OVERDUE'
+      }
+    ];
+
     return () => {
       unsubCondo();
       unsubResidents();
@@ -396,6 +499,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
       unsubPackages();
       unsubInvoices();
       unsubAuditLogs();
+      unsubAssemblies();
+      unsubMaintenance();
+      unsubScore();
     };
   }, [user.condoId]);
 
@@ -500,11 +606,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'announcements', label: 'Comunicados', icon: Megaphone },
     { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
+    { id: 'assemblies', label: 'Assembleias', icon: Gavel },
     { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
     { id: 'reservations', label: 'Reservas', icon: Calendar },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield },
     { id: 'packages', label: 'Encomendas', icon: PackageIcon },
+    { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true },
+    { id: 'cameras', label: 'Câmeras', icon: Camera, premiumOnly: true },
+    { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true },
@@ -514,6 +624,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
 
   const filteredMenuItems = menuItems.filter(item => {
     if (item.adminOnly && user.role === 'RESIDENT') return false;
+    if (item.premiumOnly && condo?.planId !== 'PREMIUM') return false;
     return true;
   });
 
@@ -678,6 +789,52 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                 exit={{ opacity: 0, y: -20 }} 
                 className="space-y-6 lg:space-y-10"
               >
+                {/* Condo Score Section */}
+                {user.role === 'CONDO_ADMIN' && condoScore && (
+                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/60 flex flex-col md:flex-row items-center gap-8">
+                    <div className="relative w-32 h-32 flex-shrink-0">
+                       <svg className="w-full h-full transform -rotate-90">
+                         <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-slate-100" />
+                         <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="12" fill="transparent" strokeDasharray="364.4" strokeDashoffset={364.4 * (1 - condoScore.score / 100)} className="text-blue-600" strokeLinecap="round" />
+                       </svg>
+                       <div className="absolute inset-0 flex flex-col items-center justify-center">
+                         <span className="text-3xl font-black text-slate-800">{condoScore.score}</span>
+                         <span className="text-[10px] font-bold text-slate-400 uppercase">Score</span>
+                       </div>
+                    </div>
+                    <div className="flex-grow">
+                      <h3 className="text-xl font-black text-slate-800 mb-2">Saúde Financeira do Condomínio</h3>
+                      <p className="text-sm text-slate-500 mb-4">
+                        Seu score é baseado na taxa de inadimplência ({condoScore.delinquencyRate}%) e pontualidade dos moradores.
+                        {condoScore.score > 80 ? ' Excelente gestão!' : ' Atenção aos atrasos.'}
+                      </p>
+                      <div className="flex gap-4">
+                        <div className="bg-blue-50 px-4 py-2 rounded-xl border border-blue-100">
+                          <p className="text-[10px] font-bold text-blue-400 uppercase">Inadimplência</p>
+                          <p className="font-bold text-blue-600">{condoScore.delinquencyRate}%</p>
+                        </div>
+                        <div className="bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100">
+                          <p className="text-[10px] font-bold text-emerald-400 uppercase">Previsão</p>
+                          <p className="font-bold text-emerald-600">Estável</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full md:w-64 h-24">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={condoScore.trends}>
+                          <defs>
+                            <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <Area type="monotone" dataKey="score" stroke="#2563eb" fillOpacity={1} fill="url(#colorScore)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
                 {/* Welcome Banner */}
                 <div className="bg-slate-900 rounded-3xl lg:rounded-[2.5rem] p-6 sm:p-10 text-white relative overflow-hidden shadow-2xl shadow-slate-900/20">
                   <div className="relative z-10 max-w-2xl">
@@ -836,20 +993,302 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
               </motion.div>
             )}
 
+            {activeMenu === 'assemblies' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Assembleias Digitais</h3>
+                    <p className="text-slate-500">Participe das decisões do seu condomínio com validade jurídica.</p>
+                  </div>
+                  {user.role === 'CONDO_ADMIN' && (
+                    <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                      <Plus className="w-5 h-5" /> Nova Assembleia
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {assemblies.length === 0 ? (
+                    <div className="bg-white p-20 rounded-[2.5rem] border border-slate-200 text-center space-y-4">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto">
+                        <Gavel className="w-10 h-10 text-slate-300" />
+                      </div>
+                      <h4 className="text-xl font-bold text-slate-800">Nenhuma assembleia ativa</h4>
+                      <p className="text-slate-400 max-w-sm mx-auto">Você será notificado quando uma nova assembleia for agendada.</p>
+                    </div>
+                  ) : (
+                    assemblies.map(assembly => (
+                      <div key={assembly.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row gap-8">
+                        <div className="flex-grow space-y-6">
+                          <div className="flex items-center gap-3">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                              assembly.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-600' : 
+                              assembly.status === 'SCHEDULED' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {assembly.status === 'ACTIVE' ? 'Em Votação' : assembly.status === 'SCHEDULED' ? 'Agendada' : 'Encerrada'}
+                            </span>
+                            <span className="text-xs font-bold text-slate-400">Expira em {new Date(assembly.endDate).toLocaleDateString()}</span>
+                          </div>
+                          <div>
+                            <h4 className="text-2xl font-black text-slate-800 mb-2">{assembly.title}</h4>
+                            <p className="text-slate-500 leading-relaxed">{assembly.description}</p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {assembly.items.map(item => (
+                              <div key={item.id} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p className="font-bold text-slate-800 mb-4">{item.question}</p>
+                                <div className="space-y-2">
+                                  {item.options.map((opt, idx) => {
+                                    const voteCount = Object.values(item.votes).filter(v => v === idx).length;
+                                    const totalVotes = Object.keys(item.votes).length;
+                                    const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
+                                    return (
+                                      <div key={idx} className="space-y-1">
+                                        <div className="flex justify-between text-xs font-bold">
+                                          <span className="text-slate-600">{opt}</span>
+                                          <span className="text-slate-400">{voteCount} votos ({Math.round(percentage)}%)</span>
+                                        </div>
+                                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                                          <motion.div 
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${percentage}%` }}
+                                            className="h-full bg-blue-600"
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {assembly.status === 'ACTIVE' && (
+                                  <button className="mt-6 w-full py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-900 hover:text-white transition-all">
+                                    Votar agora
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="md:w-64 space-y-6">
+                          <div className="p-6 bg-slate-900 rounded-3xl text-white">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-4">Resumo Legal</p>
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-3">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                <span className="text-xs font-medium">Votos auditados</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                <span className="text-xs font-medium">Registro em Blockchain</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                <span className="text-xs font-medium">Quórum verificado</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">
+                            <FileText className="w-4 h-4" /> Baixar Edital
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'maintenance' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Manutenção Preventiva</h3>
+                    <p className="text-slate-500">Agenda e histórico de equipamentos críticos.</p>
+                  </div>
+                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                    <Plus className="w-5 h-5" /> Agendar Manutenção
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { label: 'Próximos 7 dias', value: maintenanceTasks.filter(t => isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7))).length, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50' },
+                    { label: 'Atrasadas', value: maintenanceTasks.filter(t => t.status === 'OVERDUE').length, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+                    { label: 'Concluídas (Mês)', value: maintenanceTasks.filter(t => t.status === 'COMPLETED').length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                  ].map((stat, i) => (
+                    <div key={i} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                      <div className={`${stat.bg} ${stat.color} w-12 h-12 rounded-2xl flex items-center justify-center mb-4`}>
+                        <stat.icon className="w-6 h-6" />
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                      <h3 className="text-3xl font-black text-slate-800">{stat.value}</h3>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Equipamento</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Frequência</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Próxima Data</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                        <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {maintenanceTasks.map(task => (
+                        <tr key={task.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                          <td className="p-6">
+                            <div className="flex items-center gap-4">
+                               <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                                 <Wrench className="w-5 h-5 text-slate-500" />
+                               </div>
+                               <div>
+                                 <p className="font-bold text-slate-800">{task.title}</p>
+                                 <p className="text-xs text-slate-400">{task.description}</p>
+                               </div>
+                            </div>
+                          </td>
+                          <td className="p-6">
+                            <span className="text-xs font-bold text-slate-600">{task.frequency}</span>
+                          </td>
+                          <td className="p-6">
+                            <p className="text-xs font-bold text-slate-800">{new Date(task.nextDueDate).toLocaleDateString()}</p>
+                            <p className="text-[10px] text-slate-400">Restam {Math.ceil((new Date(task.nextDueDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} dias</p>
+                          </td>
+                          <td className="p-6">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                              task.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-600' : 
+                              task.status === 'OVERDUE' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                            }`}>
+                              {task.status === 'COMPLETED' ? 'Concluído' : task.status === 'OVERDUE' ? 'Atrasado' : 'Pendente'}
+                            </span>
+                          </td>
+                          <td className="p-6">
+                            <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
+                              <MoreVertical className="w-5 h-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'cameras' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Câmeras em Tempo Real</h3>
+                    <p className="text-slate-500">Monitoramento integrado (Intelbras / Hikvision).</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold">Mosaico</button>
+                    <button className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold">Gravações</button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {[
+                    { name: 'Entrada Principal', status: 'Online', lastEvent: 'Movimento detectado há 2 min' },
+                    { name: 'Garagem G1', status: 'Online', lastEvent: 'Sem eventos recentes' },
+                    { name: 'Piscina', status: 'Online', lastEvent: 'Movimento detectado há 15 min' },
+                    { name: 'Hall Elevadores', status: 'Online', lastEvent: 'Sem eventos recentes' },
+                  ].map((cam, i) => (
+                    <div key={i} className="bg-slate-900 rounded-[2.5rem] overflow-hidden relative group aspect-video">
+                      <img 
+                        src={`https://picsum.photos/seed/cam${i}/800/450?blur=2`} 
+                        alt={cam.name} 
+                        className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white group-hover:scale-110 transition-transform cursor-pointer">
+                          <Activity className="w-8 h-8 animate-pulse" />
+                        </div>
+                      </div>
+                      <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+                        <span className="text-[10px] font-black text-white uppercase tracking-widest">LIVE</span>
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+                        <h4 className="text-white font-bold">{cam.name}</h4>
+                        <p className="text-white/60 text-xs">{cam.lastEvent}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'marketplace' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800">Marketplace Interno</h3>
+                    <p className="text-slate-500">Serviços e produtos de moradores para moradores.</p>
+                  </div>
+                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                    <Plus className="w-5 h-5" /> Anunciar
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[
+                    { title: 'Aulas de Yoga', author: 'Ana (101A)', price: 'R$ 80/aula', rating: 4.9, category: 'Saúde' },
+                    { title: 'Bolos Caseiros', author: 'Dona Maria (202B)', price: 'A partir de R$ 45', rating: 5.0, category: 'Alimentação' },
+                    { title: 'Passeador de Cães', author: 'Pedro (303C)', price: 'R$ 30/passeio', rating: 4.8, category: 'Pets' },
+                  ].map((item, i) => (
+                    <div key={i} className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all">
+                      <div className="aspect-square bg-slate-100 relative">
+                        <img 
+                          src={`https://picsum.photos/seed/market${i}/400/400`} 
+                          alt={item.title} 
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black uppercase text-blue-600">
+                          {item.category}
+                        </div>
+                      </div>
+                      <div className="p-6">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-bold text-slate-800 text-lg">{item.title}</h4>
+                          <div className="flex items-center gap-1 text-yellow-500">
+                            <Star className="w-4 h-4 fill-current" />
+                            <span className="text-xs font-bold">{item.rating}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-4">Por {item.author}</p>
+                        <div className="flex justify-between items-center">
+                          <span className="text-blue-600 font-black">{item.price}</span>
+                          <button className="p-2 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-xl transition-all">
+                            <ChevronRight className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
             {activeMenu === 'subscription' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-4xl mx-auto space-y-8">
                 <div className="bg-primary text-white rounded-[2.5rem] p-10 shadow-2xl shadow-primary/30 relative overflow-hidden">
                   <div className="relative z-10">
                     <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Plano Atual</p>
-                    <h3 className="text-4xl font-black mb-6">Plano Profissional</h3>
+                    <h3 className="text-4xl font-black mb-6">Plano {plans.find(p => p.id === condo?.planId)?.name || 'Básico'}</h3>
                     <div className="flex items-center gap-6 mb-8">
                       <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20">
                         <p className="text-[10px] font-bold uppercase text-white/60">Status</p>
-                        <p className="font-bold">Ativo</p>
+                        <p className="font-bold">{condo?.subscriptionStatus === 'ACTIVE' ? 'Ativo' : condo?.subscriptionStatus === 'TRIAL' ? 'Trial' : 'Pendente'}</p>
                       </div>
                       <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20">
-                        <p className="text-[10px] font-bold uppercase text-white/60">Próximo Vencimento</p>
-                        <p className="font-bold">15/05/2024</p>
+                        <p className="text-[10px] font-bold uppercase text-white/60">Valor Mensal</p>
+                        <p className="font-bold">R$ {plans.find(p => p.id === condo?.planId)?.price || 0}</p>
                       </div>
                     </div>
                     <button 
@@ -1202,6 +1641,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
                             <td className="px-8 py-6">
                               {pkg.status === 'PENDING' && user.role !== 'RESIDENT' && (
                                 <button className="text-blue-600 font-bold text-sm hover:underline">Confirmar Entrega</button>
+                              )}
+                              {pkg.status === 'PENDING' && user.role === 'RESIDENT' && (
+                                <button 
+                                  onClick={() => setSelectedPackageForQR(pkg)}
+                                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all"
+                                >
+                                  <QrCode className="w-4 h-4" /> QR Code de Retirada
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -1811,6 +2258,47 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
         )}
       </AnimatePresence>
 
+      {/* Package QR Code Modal */}
+      <AnimatePresence>
+        {selectedPackageForQR && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[2.5rem] p-10 max-w-sm w-full text-center relative shadow-2xl"
+            >
+              <button 
+                onClick={() => setSelectedPackageForQR(null)}
+                className="absolute top-6 right-6 p-2 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+              <div className="mb-8">
+                <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                  <PackageIcon className="w-10 h-10 text-blue-600" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-800 mb-2">Retirada de Encomenda</h3>
+                <p className="text-slate-500 text-sm">Apresente este QR Code ao porteiro para retirar seu pacote.</p>
+              </div>
+              <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100 mb-8 flex justify-center">
+                <QRCodeSVG 
+                  value={`PACKAGE_WITHDRAWAL_${selectedPackageForQR.id}`} 
+                  size={200}
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
+              <div className="space-y-2 text-left bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Detalhes do Pacote</p>
+                <p className="text-sm font-bold text-slate-800">{selectedPackageForQR.description}</p>
+                <p className="text-xs text-slate-500">Recebido em: {new Date(selectedPackageForQR.receivedAt).toLocaleString()}</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Visitor QR Code Modal */}
       <AnimatePresence>
         {selectedVisitorForQR && (
@@ -1953,7 +2441,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog }: { user: AppU
   );
 };
 
-const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, createAuditLog }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void> }) => {
+const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
@@ -2140,6 +2628,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
           onLogout={onLogout} 
           appSettings={appSettings} 
           createAuditLog={createAuditLog} 
+          plans={plans}
         />
       </div>
     );
@@ -2273,6 +2762,26 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                       <span>Jul</span>
                     </div>
                   </div>
+
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+                    <h3 className="text-xl font-headline font-black text-gray-800 mb-8">Saúde Global dos Condomínios</h3>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={[
+                          { name: 'Excelente', value: 12, fill: '#10b981' },
+                          { name: 'Bom', value: 8, fill: '#3b82f6' },
+                          { name: 'Atenção', value: 4, fill: '#f59e0b' },
+                          { name: 'Crítico', value: 1, fill: '#ef4444' },
+                        ]}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                          <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                          <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={40} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -2362,48 +2871,6 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
               </motion.div>
             )}
 
-            {activeMenu === 'plans' && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {PLANS.map((plan) => (
-                    <div key={plan.id} className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-6">
-                        <CreditCard className="w-8 h-8 text-gray-100" />
-                      </div>
-                      <h4 className="text-xl font-black text-slate-800 mb-2">{plan.name}</h4>
-                      <p className="text-3xl font-black text-blue-600 mb-6">R$ {plan.price}<span className="text-sm text-gray-400 font-medium">/mês</span></p>
-                      <ul className="space-y-3">
-                        {plan.features.map((f, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                            <CheckCircle2 className="w-4 h-4 text-green-500" /> {f}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-bold text-slate-800 mb-6">Faturamento Recente</h3>
-                  <div className="space-y-4">
-                    {condos.filter(c => c.subscriptionStatus === 'ACTIVE').slice(0, 5).map((c, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <DollarSign className="w-5 h-5 text-green-500" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-slate-800">{c.name}</p>
-                            <p className="text-xs text-gray-400">Pagamento via PIX • {new Date().toLocaleDateString()}</p>
-                          </div>
-                        </div>
-                        <p className="font-black text-slate-800">R$ {PLANS.find(p => p.id === c.planId)?.price || 0}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            )}
 
             {activeMenu === 'users' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
@@ -2572,15 +3039,84 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
               </motion.div>
             )}
 
-            {/* Placeholder for other menus */}
-            {!['overview', 'condos', 'users', 'settings'].includes(activeMenu) && (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="bg-gray-100 p-8 rounded-full mb-6">
-                  <Settings className="w-12 h-12 text-gray-400" />
+            {activeMenu === 'plans' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                  <div className="flex items-center gap-3 mb-6">
+                    <CreditCard className="w-6 h-6 text-blue-600" />
+                    <h3 className="text-xl font-bold text-slate-800">Gestão de Preços dos Planos</h3>
+                  </div>
+                  <p className="text-sm text-slate-500 mb-8">
+                    Altere os valores mensais cobrados para cada nível de assinatura. Essas mudanças refletirão na Landing Page e no faturamento.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    {plans.map((plan) => (
+                      <div key={plan.id} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-slate-800">{plan.name}</span>
+                          <span className="text-[10px] font-black uppercase px-2 py-1 bg-white rounded-md text-slate-400">ID: {plan.id}</span>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Preço Mensal (R$)</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">R$</span>
+                            <input 
+                              type="number" 
+                              value={appSettings.planPrices?.[plan.id as keyof typeof appSettings.planPrices] || plan.price}
+                              onChange={(e) => {
+                                const newPrices = { ...appSettings.planPrices, [plan.id]: Number(e.target.value) };
+                                onUpdateSettings({ planPrices: newPrices });
+                              }}
+                              className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-800"
+                            />
+                          </div>
+                        </div>
+                        <div className="pt-4 border-t border-slate-200/60">
+                          <p className="text-[10px] text-slate-400 font-medium">Recursos principais:</p>
+                          <ul className="mt-2 space-y-1">
+                            {plan.features.slice(0, 3).map((f, i) => (
+                              <li key={i} className="text-[10px] text-slate-500 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-blue-500" /> {f}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-2">Módulo Administrativo</h3>
-                <p className="text-gray-500 max-w-xs">Configurações globais do SaaS e gestão de planos em desenvolvimento.</p>
-              </div>
+
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6">Faturamento Recente</h3>
+                  <div className="space-y-4">
+                    {condos.filter(c => c.subscriptionStatus === 'ACTIVE').slice(0, 5).map((c, i) => (
+                      <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <DollarSign className="w-5 h-5 text-green-500" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800">{c.name}</p>
+                            <p className="text-xs text-gray-400">Pagamento via PIX • {new Date().toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <p className="font-black text-slate-800">R$ {plans.find(p => p.id === c.planId)?.price || 0}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 p-8 rounded-3xl border border-blue-100 flex items-start gap-4">
+                  <Sparkles className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
+                  <div>
+                    <h4 className="font-bold text-blue-900 mb-1">Dica de Monetização</h4>
+                    <p className="text-sm text-blue-700 leading-relaxed">
+                      Mantenha uma diferença clara de valor entre os planos para incentivar o upgrade. O plano **Profissional** costuma ser o melhor custo-benefício para a maioria dos condomínios médios.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
@@ -2804,7 +3340,21 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [appSettings, setAppSettings] = useState({ logo: '', primaryColor: '#00323d' });
+  const [appSettings, setAppSettings] = useState({ 
+    logo: '', 
+    primaryColor: '#00323d',
+    planPrices: {
+      BASIC: 49,
+      PRO: 89,
+      PREMIUM: 119
+    }
+  });
+  const dynamicPlans = useMemo(() => {
+    return PLANS.map(plan => ({
+      ...plan,
+      price: appSettings.planPrices?.[plan.id as keyof typeof appSettings.planPrices] || plan.price
+    }));
+  }, [appSettings.planPrices]);
 
   useEffect(() => {
     const settingsRef = doc(db, 'settings', 'global');
@@ -3178,12 +3728,12 @@ export default function App() {
     <div className="font-sans text-primary">
       {user ? (
         user.role === 'SUPER_ADMIN' ? (
-          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} />
+          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
         ) : (
-          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} />
+          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
         )
       ) : (
-        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} />
+        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} />
       )}
 
       {/* Login Modal */}
