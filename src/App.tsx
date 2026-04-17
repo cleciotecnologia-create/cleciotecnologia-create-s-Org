@@ -117,8 +117,8 @@ const MOCK_RESIDENTS: Resident[] = [
 ];
 
 const MOCK_OCCURRENCES: Occurrence[] = [
-  { id: 'o1', condoId: 'c1', residentId: 'r1', title: 'Vazamento no 10º andar', description: 'Infiltração vindo do teto do corredor.', status: 'OPEN', createdAt: '2024-04-10' },
-  { id: 'o2', condoId: 'c1', residentId: 'r2', title: 'Barulho excessivo', description: 'Festa após as 22h no apto 202.', status: 'RESOLVED', createdAt: '2024-04-08' },
+  { id: 'o1', condoId: 'c1', residentId: 'r1', title: 'Vazamento no 10º andar', description: 'Infiltração vindo do teto do corredor.', category: 'LEAK', status: 'OPEN', createdAt: '2024-04-10' },
+  { id: 'o2', condoId: 'c1', residentId: 'r2', title: 'Barulho excessivo', description: 'Festa após as 22h no apto 202.', category: 'NOISE', status: 'RESOLVED', createdAt: '2024-04-08' },
 ];
 
 // --- Components ---
@@ -381,6 +381,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [visitorSuccess, setVisitorSuccess] = useState<Visitor | null>(null);
   const [showFaceIDModal, setShowFaceIDModal] = useState(false);
   const [faceIDStep, setFaceIDStep] = useState(0);
+  const [showAddOccurrenceModal, setShowAddOccurrenceModal] = useState(false);
+  const [newOccurrence, setNewOccurrence] = useState({
+    title: '',
+    description: '',
+    category: 'OTHER' as Occurrence['category']
+  });
 
   const handleSendEmail = async (to: string, subject: string, body: string) => {
     try {
@@ -1080,6 +1086,53 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     }
   };
 
+  const handleCreateOccurrence = async () => {
+    if (!user.condoId || !newOccurrence.title || !newOccurrence.description) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const occurrencesRef = collection(db, 'condos', user.condoId, 'occurrences');
+      await addDoc(occurrencesRef, {
+        ...newOccurrence,
+        residentId: user.id,
+        status: 'OPEN',
+        createdAt: new Date().toISOString()
+      });
+      setShowAddOccurrenceModal(false);
+      setNewOccurrence({ title: '', description: '', category: 'OTHER' });
+      createAuditLog('Criou ocorrência', 'OCCURRENCE');
+      alert('Ocorrência registrada com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/occurrences`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateOccurrenceStatus = async (occurrenceId: string, status: Occurrence['status']) => {
+    if (!user.condoId) return;
+    try {
+      const occurrenceRef = doc(db, 'condos', user.condoId, 'occurrences', occurrenceId);
+      await setDoc(occurrenceRef, { status }, { merge: true });
+      createAuditLog('Atualizou status de ocorrência', 'OCCURRENCE', occurrenceId, `Novo status: ${status}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/occurrences/${occurrenceId}`);
+    }
+  };
+
+  const handleAssignOccurrence = async (occurrenceId: string, assignedTo: string) => {
+    if (!user.condoId) return;
+    try {
+      const occurrenceRef = doc(db, 'condos', user.condoId, 'occurrences', occurrenceId);
+      await setDoc(occurrenceRef, { assignedTo }, { merge: true });
+      createAuditLog('Atribuiu responsável à ocorrência', 'OCCURRENCE', occurrenceId, `Responsável: ${assignedTo}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/occurrences/${occurrenceId}`);
+    }
+  };
+
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'announcements', label: 'Comunicados', icon: Megaphone },
@@ -1493,6 +1546,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       <tr>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Nome</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Unidade</th>
+                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tipo</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Contato</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
@@ -1505,6 +1559,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <tr key={res.id} className="hover:bg-gray-50 transition-all">
                           <td className="px-8 py-4 font-bold text-primary">{res.name}</td>
                           <td className="px-8 py-4 text-sm font-medium text-gray-600">{res.unit}</td>
+                          <td className="px-8 py-4">
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.isOwner ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>
+                              {res.isOwner ? 'Proprietário' : 'Inquilino'}
+                            </span>
+                          </td>
                           <td className="px-8 py-4">
                             <p className="text-sm text-gray-600">{res.email}</p>
                             <p className="text-xs text-gray-400">{res.phone}</p>
@@ -2006,43 +2065,109 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
             {activeMenu === 'occurrences' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-bold text-primary">Gestão de Ocorrências</h3>
+                  <div>
+                    <h3 className="text-2xl font-bold text-primary">Gestão de Ocorrências</h3>
+                    <p className="text-sm text-gray-500">Acompanhe e resolva os problemas do condomínio</p>
+                  </div>
                   <div className="flex gap-2">
                     <button className="bg-white text-primary border border-gray-200 px-4 py-2 rounded-xl text-sm font-bold">Filtrar</button>
-                    <button className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20">
+                    <button 
+                      onClick={() => setShowAddOccurrenceModal(true)}
+                      className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                    >
                       <Plus className="w-5 h-5" /> Nova Ocorrência
                     </button>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-4">
-                  {MOCK_OCCURRENCES.map((occ) => (
-                    <div key={occ.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                      <div className="flex items-start gap-4">
-                        <div className={`p-3 rounded-2xl ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'}`}>
-                          <AlertTriangle className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-primary text-lg">{occ.title}</h4>
-                          <p className="text-gray-500 text-sm mb-2">{occ.description}</p>
-                          <div className="flex items-center gap-4 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                            <span>Apto {MOCK_RESIDENTS.find(r => r.id === occ.residentId)?.unit}</span>
-                            <span>•</span>
-                            <span>{occ.createdAt}</span>
+                  {occurrences.length === 0 && (
+                    <div className="bg-white p-12 rounded-3xl text-center border border-dashed border-gray-300">
+                      <p className="text-gray-400 font-bold">Nenhuma ocorrência registrada.</p>
+                    </div>
+                  )}
+                  {occurrences.map((occ) => {
+                    const resident = residents.find(r => r.id === occ.residentId);
+                    return (
+                      <div key={occ.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-md transition-shadow">
+                        <div className="flex items-start gap-4 flex-grow">
+                          <div className={`p-3 rounded-2xl flex-shrink-0 ${
+                            occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 
+                            occ.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-600' : 
+                            'bg-green-100 text-green-600'
+                          }`}>
+                            <AlertTriangle className="w-6 h-6" />
+                          </div>
+                          <div className="flex-grow">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-bold text-primary text-lg">{occ.title}</h4>
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-gray-100 text-gray-500 rounded">
+                                {occ.category === 'NOISE' ? 'Barulho' :
+                                 occ.category === 'LEAK' ? 'Vazamento' :
+                                 occ.category === 'ELECTRICAL' ? 'Elétrico' :
+                                 occ.category === 'SECURITY' ? 'Segurança' :
+                                 occ.category === 'MAINTENANCE' ? 'Manutenção' : 'Outros'}
+                              </span>
+                            </div>
+                            <p className="text-gray-600 text-sm mb-4 leading-relaxed">{occ.description}</p>
+                            <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-gray-400 uppercase tracking-widest">
+                              <span className="flex items-center gap-1"><UserIcon className="w-3 h-3" /> {resident?.name || 'Morador'} - Apto {resident?.unit}</span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(occ.createdAt).toLocaleDateString()}</span>
+                              {occ.assignedTo && (
+                                <>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1 text-blue-600"><Briefcase className="w-3 h-3" /> Resp: {occ.assignedTo}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
+                        <div className="flex flex-col sm:flex-row items-center gap-3">
+                          {user.role !== 'RESIDENT' && (
+                            <>
+                              <div className="w-full sm:w-auto">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">Status</p>
+                                <select 
+                                  value={occ.status}
+                                  onChange={(e) => handleUpdateOccurrenceStatus(occ.id, e.target.value as Occurrence['status'])}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold text-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                >
+                                  <option value="OPEN">Aberto</option>
+                                  <option value="IN_PROGRESS">Em Andamento</option>
+                                  <option value="RESOLVED">Resolvido</option>
+                                </select>
+                              </div>
+                              <div className="w-full sm:w-auto">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">Atribuir</p>
+                                <input 
+                                  type="text"
+                                  placeholder="Responsável..."
+                                  defaultValue={occ.assignedTo}
+                                  onBlur={(e) => {
+                                    if (e.target.value !== occ.assignedTo) {
+                                      handleAssignOccurrence(occ.id, e.target.value);
+                                    }
+                                  }}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-gray-300"
+                                />
+                              </div>
+                            </>
+                          )}
+                          {user.role === 'RESIDENT' && (
+                             <span className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest ${
+                                occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 
+                                occ.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-600' : 
+                                'bg-green-100 text-green-600'
+                              }`}>
+                                {occ.status === 'OPEN' ? 'Aberto' : 
+                                 occ.status === 'IN_PROGRESS' ? 'Em Andamento' : 
+                                 'Resolvido'}
+                              </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <select className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold text-primary focus:outline-none">
-                          <option value="OPEN">Aberto</option>
-                          <option value="IN_PROGRESS">Em Andamento</option>
-                          <option value="RESOLVED">Resolvido</option>
-                        </select>
-                        <button className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
-                          <ChevronRight className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.div>
             )}
@@ -3862,6 +3987,78 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   />
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Occurrence Modal */}
+      <AnimatePresence>
+        {showAddOccurrenceModal && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddOccurrenceModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Nova Ocorrência</h3>
+                <button onClick={() => setShowAddOccurrenceModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Barulho no 4º andar" 
+                    value={newOccurrence.title}
+                    onChange={(e) => setNewOccurrence({ ...newOccurrence, title: e.target.value })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
+                  <select 
+                    value={newOccurrence.category}
+                    onChange={(e) => setNewOccurrence({ ...newOccurrence, category: e.target.value as Occurrence['category'] })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    <option value="NOISE">Barulho</option>
+                    <option value="LEAK">Vazamento</option>
+                    <option value="ELECTRICAL">Problema Elétrico</option>
+                    <option value="SECURITY">Segurança</option>
+                    <option value="MAINTENANCE">Manutenção</option>
+                    <option value="OTHER">Outros</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
+                  <textarea 
+                    rows={4}
+                    placeholder="Descreva o ocorrido com detalhes..." 
+                    value={newOccurrence.description}
+                    onChange={(e) => setNewOccurrence({ ...newOccurrence, description: e.target.value })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20" 
+                  />
+                </div>
+                <button 
+                  onClick={() => handleCreateOccurrence()}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoading ? 'Enviando...' : 'Registrar Ocorrência'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

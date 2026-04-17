@@ -61,7 +61,9 @@ export interface Occurrence {
   residentId: string;
   title: string;
   description: string;
+  category: 'NOISE' | 'LEAK' | 'ELECTRICAL' | 'SECURITY' | 'MAINTENANCE' | 'OTHER';
   status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+  assignedTo?: string;
   createdAt: string;
 }
 
