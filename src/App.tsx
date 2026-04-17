@@ -481,7 +481,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [cameras, setCameras] = useState<CameraStream[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCamsLoading, setIsCamsLoading] = useState(false);
-  const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings'>('monitoring');
+  const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings' | 'api'>('monitoring');
   const [cameraConfig, setCameraConfig] = useState({
     ip: '192.168.1.100',
     httpPort: 80,
@@ -1300,6 +1300,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'announcements', label: 'Comunicados', icon: Megaphone },
     { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
+    { id: 'cameras', label: 'Monitoramento', icon: Activity, premiumOnly: true },
     { id: 'assemblies', label: 'Assembleias', icon: Gavel },
     { id: 'minutes', label: 'Atas e Documentos', icon: FileText },
     { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true },
@@ -1309,7 +1310,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'concierge', label: 'Portaria Remota', icon: Shield },
     { id: 'packages', label: 'Encomendas', icon: PackageIcon },
     { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true },
-    { id: 'cameras', label: 'Câmeras', icon: Camera, premiumOnly: true },
     { id: 'ranking', label: 'Ranking & Prêmios', icon: Award },
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
@@ -2008,6 +2008,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     >
                       Configurações
                     </button>
+                    <button 
+                      onClick={() => setCameraViewTab('api')}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${cameraViewTab === 'api' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      API & Integrações
+                    </button>
                   </div>
                 </div>
 
@@ -2077,7 +2083,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       </div>
                     ))
                   )}
-                </div>) : (
+                </div>
+                ) : cameraViewTab === 'settings' ? (
                   <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="space-y-4">
@@ -2167,6 +2174,47 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
                         Salvar e Testar Conexão
                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-8">
+                    <div className="p-10 border-2 border-dashed border-slate-100 rounded-[2rem] text-center space-y-6">
+                      <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto text-blue-600">
+                        <Zap className="w-10 h-10" />
+                      </div>
+                      <div className="max-w-md mx-auto space-y-2">
+                        <h4 className="text-xl font-black text-slate-800">API de Integração Direta</h4>
+                        <p className="text-slate-500 text-sm italic">
+                          Utilize nossa API para integrar com sistemas externos de reconhecimento facial ou inteligência artificial.
+                        </p>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                        <div className="bg-slate-900 p-6 rounded-2xl space-y-4">
+                          <div className="flex justify-between items-center">
+                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Endpoint de Webhook</p>
+                            <Copy className="w-3 h-3 text-slate-500 cursor-pointer hover:text-white" />
+                          </div>
+                          <div className="text-white font-mono text-[10px] break-all bg-black/20 p-3 rounded-lg border border-white/5">
+                            https://api.condopro.app/v1/webhook/cam-{user.condoId || 'id'}
+                          </div>
+                        </div>
+                        <div className="bg-slate-900 p-6 rounded-2xl space-y-4">
+                          <div className="flex justify-between items-center">
+                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">API Key (X-API-KEY)</p>
+                            <Eye className="w-3 h-3 text-slate-500 cursor-pointer hover:text-white" />
+                          </div>
+                          <div className="text-white font-mono text-[10px] break-all bg-black/20 p-3 rounded-lg border border-white/5">
+                            cp_live_••••••••••••••••••••
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-6">
+                        <button className="text-sm font-bold text-blue-600 hover:text-blue-700 underline flex items-center gap-2 mx-auto">
+                          <ExternalLink className="w-4 h-4" /> Ver Documentação da API
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
