@@ -3348,6 +3348,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [showAddCondoModal, setShowAddCondoModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] = useState<AppUser | null>(null);
   const [managedCondoId, setManagedCondoId] = useState<string | null>(null);
   const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
@@ -3532,6 +3534,27 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     } catch (err) {
       console.error("Erro ao adicionar usuário:", err);
       handleFirestoreError(err, OperationType.CREATE, 'users');
+    }
+  };
+
+  const handleUpdateUser = async () => {
+    if (!selectedUserForEdit || !selectedUserForEdit.name || !selectedUserForEdit.email) {
+      alert("Nome e Email são obrigatórios.");
+      return;
+    }
+    try {
+      const userRef = doc(db, 'users', selectedUserForEdit.id);
+      await setDoc(userRef, {
+        ...selectedUserForEdit,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      
+      await createAuditLog('Atualizou usuário', 'CONDO', selectedUserForEdit.id, `Usuário: ${selectedUserForEdit.name}, Role: ${selectedUserForEdit.role}`, 'global');
+      setShowEditUserModal(false);
+      setSelectedUserForEdit(null);
+    } catch (err) {
+      console.error("Erro ao atualizar usuário:", err);
+      handleFirestoreError(err, OperationType.WRITE, `users/${selectedUserForEdit?.id}`);
     }
   };
 
@@ -3884,7 +3907,15 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             {condos.find(c => c.id === u.condoId)?.name || '-'}
                           </td>
                           <td className="px-8 py-4">
-                            <button className="text-slate-600 hover:underline text-sm font-bold">Editar</button>
+                            <button 
+                              onClick={() => {
+                                setSelectedUserForEdit(u);
+                                setShowEditUserModal(true);
+                              }}
+                              className="text-slate-600 hover:underline text-sm font-bold"
+                            >
+                              Editar
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -4246,7 +4277,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
               onClick={() => setShowAddUserModal(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -4333,6 +4364,106 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                   className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
                 >
                   Criar Usuário
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showEditUserModal && selectedUserForEdit && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowEditUserModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Editar Usuário</h3>
+                <button onClick={() => setShowEditUserModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    value={selectedUserForEdit.name}
+                    onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, name: e.target.value})}
+                    placeholder="Ex: João Silva" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
+                  <input 
+                    type="email" 
+                    value={selectedUserForEdit.email}
+                    onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, email: e.target.value})}
+                    placeholder="joao@email.com" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
+                    <input 
+                      type="text" 
+                      value={selectedUserForEdit.cpf || ''}
+                      onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, cpf: e.target.value})}
+                      placeholder="000.000.000-00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <input 
+                      type="text" 
+                      value={selectedUserForEdit.login || ''}
+                      onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, login: e.target.value})}
+                      placeholder="joao.silva" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Papel</label>
+                  <select 
+                    value={selectedUserForEdit.role}
+                    onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, role: e.target.value as any})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="RESIDENT">Morador</option>
+                    <option value="CONDO_ADMIN">Síndico Admin</option>
+                    <option value="SUPER_ADMIN">Super Admin</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Condomínio</label>
+                  <select 
+                    value={selectedUserForEdit.condoId || ''}
+                    onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, condoId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Nenhum</option>
+                    {condos.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button 
+                  onClick={handleUpdateUser}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Salvar Alterações
                 </button>
               </div>
             </motion.div>
