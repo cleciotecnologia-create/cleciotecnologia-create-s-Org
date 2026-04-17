@@ -516,6 +516,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [faceIDStep, setFaceIDStep] = useState(0);
   const [showAddOccurrenceModal, setShowAddOccurrenceModal] = useState(false);
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
+  const [showAddAnnouncementModal, setShowAddAnnouncementModal] = useState(false);
   const [financeFilter, setFinanceFilter] = useState<'ALL' | 'PAID' | 'PENDING' | 'OVERDUE'>('ALL');
   const [newInvoice, setNewInvoice] = useState<Partial<Invoice>>({
     amount: 0,
@@ -523,6 +524,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     type: 'CONDO_FEE',
     description: 'Taxa Condominial',
     status: 'PENDING'
+  });
+  const [newAnnouncement, setNewAnnouncement] = useState<Partial<Announcement>>({
+    title: '',
+    content: '',
+    category: 'GENERAL',
+    priority: 'MEDIUM'
   });
   const [newOccurrence, setNewOccurrence] = useState({
     title: '',
@@ -1239,12 +1246,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     setIsLoading(true);
     try {
       const invoicesRef = collection(db, 'condos', user.condoId, 'invoices');
-      await addDoc(invoicesRef, {
+      const docRef = await addDoc(invoicesRef, {
         ...newInvoice,
         amount: Number(newInvoice.amount),
         condoId: user.condoId,
         createdAt: new Date().toISOString()
       });
+      
+      const invoice = { id: docRef.id, ...newInvoice, amount: Number(newInvoice.amount), condoId: user.condoId, createdAt: new Date().toISOString() } as Invoice;
+      
+      // Auto-notify resident
+      await handleNotifyBoleto(invoice);
+
       setShowAddInvoiceModal(false);
       setNewInvoice({
         amount: 0,
@@ -1253,10 +1266,39 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         description: 'Taxa Condominial',
         status: 'PENDING'
       });
-      alert("Boleto gerado com sucesso!");
       createAuditLog('Boleto gerado', 'PAYMENT', user.condoId);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/invoices`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateAnnouncement = async () => {
+    if (!user.condoId || !newAnnouncement.title || !newAnnouncement.content) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const announcementsRef = collection(db, 'condos', user.condoId, 'announcements');
+      const docRef = await addDoc(announcementsRef, {
+        ...newAnnouncement,
+        condoId: user.condoId,
+        authorName: user.name,
+        createdAt: new Date().toISOString()
+      });
+      
+      const announcement = { id: docRef.id, ...newAnnouncement, condoId: user.condoId, authorName: user.name, createdAt: new Date().toISOString() } as Announcement;
+      
+      // Auto-notify all residents
+      await handleNotifyAllAnnouncements(announcement);
+
+      setShowAddAnnouncementModal(false);
+      setNewAnnouncement({ title: '', content: '', category: 'GENERAL', priority: 'MEDIUM' });
+      createAuditLog('Criou comunicado', 'CONDO', docRef.id, `Título: ${newAnnouncement.title}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/announcements`);
     } finally {
       setIsLoading(false);
     }
@@ -2987,7 +3029,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-slate-800">Comunicados</h3>
                   {user.role !== 'RESIDENT' && (
-                    <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                    <button 
+                      onClick={() => setShowAddAnnouncementModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                    >
                       <Plus className="w-5 h-5" /> Novo Comunicado
                     </button>
                   )}
@@ -4491,7 +4536,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       {/* Add Invoice Modal */}
       <AnimatePresence>
         {showAddInvoiceModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-800">
             <motion.div 
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
@@ -4572,13 +4617,119 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                   />
                 </div>
+                
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
+                  <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+                    <MailIcon className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs text-blue-700">
+                    <p className="font-bold">Notificação Automática</p>
+                    <p>O morador receberá um e-mail com os detalhes do boleto assim que gerado.</p>
+                  </div>
+                </div>
+
                 <button 
                   onClick={handleCreateInvoice}
                   disabled={isLoading}
                   className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
-                  Gerar Boleto
+                  Gerar e Notificar Morador
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Announcement Modal */}
+      <AnimatePresence>
+        {showAddAnnouncementModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-800">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddAnnouncementModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <h3 className="text-xl font-bold text-slate-800">Novo Comunicado</h3>
+                <button onClick={() => setShowAddAnnouncementModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título do Comunicado</label>
+                  <input 
+                    type="text" 
+                    value={newAnnouncement.title}
+                    onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})}
+                    placeholder="Ex: Manutenção Preventiva dos Elevadores" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
+                    <select 
+                      value={newAnnouncement.category}
+                      onChange={(e) => setNewAnnouncement({...newAnnouncement, category: e.target.value as any})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="GENERAL">Geral</option>
+                      <option value="MAINTENANCE">Manutenção</option>
+                      <option value="SECURITY">Segurança</option>
+                      <option value="EVENT">Evento</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Prioridade</label>
+                    <select 
+                      value={newAnnouncement.priority}
+                      onChange={(e) => setNewAnnouncement({...newAnnouncement, priority: e.target.value as any})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="LOW">Baixa</option>
+                      <option value="MEDIUM">Média</option>
+                      <option value="HIGH">Alta</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conteúdo do Comunicado</label>
+                  <textarea 
+                    value={newAnnouncement.content}
+                    onChange={(e) => setNewAnnouncement({...newAnnouncement, content: e.target.value})}
+                    placeholder="Descreva detalhadamente o comunicado para os moradores..." 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[120px]" 
+                  />
+                </div>
+                
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
+                  <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+                    <MailIcon className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs text-blue-700 leading-tight">
+                    <p className="font-bold mb-1">Notificação Automática</p>
+                    <p>Ao publicar, todos os moradores registrados receberão um e-mail com este comunicado.</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleCreateAnnouncement}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Megaphone className="w-5 h-5" />}
+                  Publicar e Notificar Todos
                 </button>
               </div>
             </motion.div>
