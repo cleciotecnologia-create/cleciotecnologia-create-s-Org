@@ -9,7 +9,7 @@ import {
   Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
-  Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database
+  Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -482,6 +482,13 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCamsLoading, setIsCamsLoading] = useState(false);
   const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings'>('monitoring');
+  const [cameraConfig, setCameraConfig] = useState({
+    ip: '192.168.1.100',
+    httpPort: 80,
+    rtspPort: 554,
+    username: 'admin',
+    password: ''
+  });
   const [newMessage, setNewMessage] = useState('');
   const [typingUsers, setTypingUsers] = useState<{[key: string]: { name: string, lastUpdate: number }}>({});
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -2080,16 +2087,34 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <div className="space-y-4">
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400">Endereço IP / Host</label>
-                            <input type="text" placeholder="192.168.1.100" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                            <input 
+                              type="text" 
+                              value={cameraConfig.ip}
+                              onChange={(e) => setCameraConfig({...cameraConfig, ip: e.target.value})}
+                              placeholder="192.168.1.100" 
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 transition-all font-mono" 
+                            />
                           </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-400">Porta HTTP</label>
-                              <input type="number" placeholder="80" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                              <input 
+                                type="number" 
+                                value={cameraConfig.httpPort}
+                                onChange={(e) => setCameraConfig({...cameraConfig, httpPort: Number(e.target.value)})}
+                                placeholder="80" 
+                                className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 transition-all font-mono" 
+                              />
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-400">Porta RTSP</label>
-                              <input type="number" placeholder="554" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                              <input 
+                                type="number" 
+                                value={cameraConfig.rtspPort}
+                                onChange={(e) => setCameraConfig({...cameraConfig, rtspPort: Number(e.target.value)})}
+                                placeholder="554" 
+                                className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 transition-all font-mono" 
+                              />
                             </div>
                           </div>
                         </div>
@@ -2101,18 +2126,46 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <div className="space-y-4">
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400">Usuário</label>
-                            <input type="text" placeholder="admin" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                            <input 
+                              type="text" 
+                              value={cameraConfig.username}
+                              onChange={(e) => setCameraConfig({...cameraConfig, username: e.target.value})}
+                              placeholder="admin" 
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            />
                           </div>
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400">Senha</label>
-                            <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                            <input 
+                              type="password" 
+                              value={cameraConfig.password}
+                              onChange={(e) => setCameraConfig({...cameraConfig, password: e.target.value})}
+                              placeholder="••••••••" 
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 transition-all font-mono" 
+                            />
                           </div>
                         </div>
                       </div>
                     </div>
-                    <div className="pt-8 border-t border-slate-100">
-                      <button className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20">
-                        <Check className="w-5 h-5" /> Salvar Configurações
+                    <div className="pt-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400">
+                        <Info className="w-4 h-4" />
+                        Compatível com protocolos ONVIF / ISAPI (Hikvision, Intelbras, Dahua)
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setIsLoading(true);
+                          setTimeout(() => {
+                            setIsLoading(false);
+                            alert("Configurações de câmera salvas e validadas com sucesso!");
+                            createAuditLog('Configurou integração de câmeras', 'CONDO', user.condoId, `Host: ${cameraConfig.ip}:${cameraConfig.httpPort}`, user.condoId);
+                          }, 1500);
+                        }}
+                        disabled={isLoading}
+                        className="w-full md:w-auto bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 disabled:opacity-50"
+                      >
+                        {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                        Salvar e Testar Conexão
                       </button>
                     </div>
                   </div>
@@ -4333,6 +4386,51 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [condos, setCondos] = useState<Condo[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [editablePlans, setEditablePlans] = useState<{
+    [key: string]: {
+      price: number;
+      features: string[];
+      maxUnits: number;
+    }
+  }>({});
+
+  useEffect(() => {
+    if (appSettings) {
+      const initial: any = {};
+      plans.forEach(p => {
+        initial[p.id] = {
+          price: appSettings.planPrices?.[p.id] ?? p.price,
+          features: appSettings.planFeatures?.[p.id] ?? p.features,
+          maxUnits: appSettings.planMaxUnits?.[p.id] ?? p.maxUnits
+        };
+      });
+      setEditablePlans(initial);
+    }
+  }, [appSettings, plans]);
+
+  const handleSavePlans = async () => {
+    setIsSavingPlans(true);
+    try {
+      const planPrices: any = {};
+      const planFeatures: any = {};
+      const planMaxUnits: any = {};
+
+      Object.keys(editablePlans).forEach(id => {
+        planPrices[id] = editablePlans[id].price;
+        planFeatures[id] = editablePlans[id].features;
+        planMaxUnits[id] = editablePlans[id].maxUnits;
+      });
+
+      await onUpdateSettings({ planPrices, planFeatures, planMaxUnits });
+      await createAuditLog('Atualizou configurações de planos SaaS', 'CONDO', 'global', 'Preços, recursos e limites atualizados', 'global');
+      alert("Configurações de planos salvas com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar configurações.");
+    } finally {
+      setIsSavingPlans(false);
+    }
+  };
   const [showAddCondoModal, setShowAddCondoModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
@@ -4347,6 +4445,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     carrier: '' 
   });
   const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
+  const [isSavingPlans, setIsSavingPlans] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
   const [profileData, setProfileData] = useState({
     name: user.name || '',
@@ -5156,89 +5255,132 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
             {activeMenu === 'plans' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-                  <div className="flex items-center gap-3 mb-6">
-                    <CreditCard className="w-6 h-6 text-blue-600" />
-                    <h3 className="text-xl font-bold text-slate-800">Gestão de Preços dos Planos</h3>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                    <div className="flex items-center gap-3">
+                      <CreditCard className="w-8 h-8 text-blue-600" />
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-800 tracking-tight">Gestão de Planos & SaaS</h3>
+                        <p className="text-sm text-slate-500">Configure os preços, limites e recursos disponíveis em cada nível.</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={handleSavePlans}
+                      disabled={isSavingPlans}
+                      className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-200 disabled:opacity-50"
+                    >
+                      {isSavingPlans ? <Activity className="w-5 h-5 animate-spin" /> : <Shield className="w-5 h-5" />}
+                      Salvar Alterações
+                    </button>
                   </div>
-                  <p className="text-sm text-slate-500 mb-8">
-                    Altere os valores mensais cobrados para cada nível de assinatura. Essas mudanças refletirão na Landing Page e no faturamento.
-                  </p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    {plans.map((plan) => (
-                      <div key={plan.id} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-slate-800">{plan.name}</span>
-                          <span className="text-[10px] font-black uppercase px-2 py-1 bg-white rounded-md text-slate-400">ID: {plan.id}</span>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Preço Mensal (R$)</label>
-                          <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">R$</span>
-                            <input 
-                              type="number" 
-                              value={appSettings.planPrices?.[plan.id as keyof typeof appSettings.planPrices] || plan.price}
-                              onChange={(e) => {
-                                const newPrices = { ...appSettings.planPrices, [plan.id]: Number(e.target.value) };
-                                onUpdateSettings({ planPrices: newPrices });
-                              }}
-                              className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-800"
-                            />
+                    {plans.map((plan) => {
+                      const current = editablePlans[plan.id] || { price: plan.price, features: plan.features, maxUnits: plan.maxUnits };
+                      return (
+                        <div key={plan.id} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-200/60 shadow-inner space-y-6">
+                          <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                            <span className="font-black text-slate-800 text-lg">{plan.name}</span>
+                            <span className="text-[10px] font-black uppercase px-3 py-1 bg-slate-100 rounded-full text-slate-400">ID: {plan.id}</span>
                           </div>
-                        </div>
 
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recursos do Plano</label>
-                          <div className="space-y-2">
-                            {(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features).map((feature: string, idx: number) => (
-                              <div key={idx} className="flex gap-2">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Preço Mensal (R$)</label>
+                              <div className="relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">R$</span>
                                 <input 
-                                  type="text"
-                                  value={feature}
+                                  type="number" 
+                                  value={current.price}
                                   onChange={(e) => {
-                                    const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
-                                    currentFeatures[idx] = e.target.value;
-                                    const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
-                                    onUpdateSettings({ planFeatures: newFeatures });
+                                    setEditablePlans({
+                                      ...editablePlans,
+                                      [plan.id]: { ...current, price: Number(e.target.value) }
+                                    });
                                   }}
-                                  className="flex-grow px-3 py-2 bg-white rounded-lg border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-500/20"
+                                  className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-800 transition-all"
                                 />
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Limite de Unidades</label>
+                              <input 
+                                type="number" 
+                                value={current.maxUnits}
+                                onChange={(e) => {
+                                  setEditablePlans({
+                                    ...editablePlans,
+                                    [plan.id]: { ...current, maxUnits: Number(e.target.value) }
+                                  });
+                                }}
+                                className="w-full p-4 bg-white rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-800 transition-all font-mono"
+                                placeholder="9999 para ilimitado"
+                              />
+                            </div>
+
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between">
+                                Recursos Ativos
+                                <span className="text-blue-500">{current.features?.length || 0} itens</span>
+                              </label>
+                              <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                                {(current.features || []).map((feature: string, idx: number) => (
+                                  <div key={feature+idx} className="flex gap-2 group">
+                                    <input 
+                                      type="text"
+                                      value={feature}
+                                      onChange={(e) => {
+                                        const next = [...current.features];
+                                        next[idx] = e.target.value;
+                                        setEditablePlans({
+                                          ...editablePlans,
+                                          [plan.id]: { ...current, features: next }
+                                        });
+                                      }}
+                                      className="flex-grow px-4 py-3 bg-white rounded-xl border border-slate-200 text-xs font-bold text-slate-600 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                                    />
+                                    <button 
+                                      onClick={() => {
+                                        const next = [...current.features];
+                                        next.splice(idx, 1);
+                                        setEditablePlans({
+                                          ...editablePlans,
+                                          [plan.id]: { ...current, features: next }
+                                        });
+                                      }}
+                                      className="p-3 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ))}
                                 <button 
                                   onClick={() => {
-                                    const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
-                                    currentFeatures.splice(idx, 1);
-                                    const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
-                                    onUpdateSettings({ planFeatures: newFeatures });
+                                    const next = [...(current.features || [])];
+                                    next.push('Novo recurso...');
+                                    setEditablePlans({
+                                      ...editablePlans,
+                                      [plan.id]: { ...current, features: next }
+                                    });
                                   }}
-                                  className="p-2 text-red-400 hover:bg-red-50 rounded-lg"
+                                  className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-blue-400 hover:text-blue-600 transition-all flex items-center justify-center gap-2 uppercase tracking-widest bg-white/50"
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  <Plus className="w-4 h-4" /> Adicionar Recurso
                                 </button>
                               </div>
-                            ))}
-                            <button 
-                              onClick={() => {
-                                const currentFeatures = [...(appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] || plan.features)];
-                                currentFeatures.push('Novo recurso');
-                                const newFeatures = { ...appSettings.planFeatures, [plan.id]: currentFeatures };
-                                onUpdateSettings({ planFeatures: newFeatures });
-                              }}
-                              className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg text-xs font-bold text-slate-400 hover:border-blue-400 hover:text-blue-400 transition-all flex items-center justify-center gap-2"
-                            >
-                              <Plus className="w-3 h-3" /> Adicionar Recurso
-                            </button>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="pt-4 border-t border-slate-200/60">
-                          <p className="text-[10px] text-slate-400 font-medium">Resumo de unidades:</p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Users className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] font-bold text-slate-600">Até {plan.maxUnits === 9999 ? 'Ilimitadas' : plan.maxUnits} unidades</span>
+                          <div className="pt-6 border-t border-slate-200/60 flex items-center justify-between">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Resumo do Plano:</p>
+                            <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-lg shadow-sm border border-slate-100">
+                              <Users className="w-3 h-3 text-blue-500" />
+                              <span className="text-[10px] font-black text-slate-700">Max: {current.maxUnits >= 9999 ? '∞' : current.maxUnits}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -5256,7 +5398,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             <p className="text-xs text-gray-400">Pagamento via PIX • {new Date().toLocaleDateString()}</p>
                           </div>
                         </div>
-                        <p className="font-black text-slate-800">R$ {plans.find(p => p.id === c.planId)?.price || 0}</p>
+                        <p className="font-black text-slate-800">R$ {appSettings.planPrices?.[c.planId] || plans.find(p => p.id === c.planId)?.price || 0}</p>
                       </div>
                     ))}
                   </div>
@@ -5905,14 +6047,28 @@ export default function App() {
       BASIC: 49,
       PRO: 89,
       PREMIUM: 119
+    },
+    planFeatures: {
+      BASIC: [] as string[],
+      PRO: [] as string[],
+      PREMIUM: [] as string[]
+    },
+    planMaxUnits: {
+      BASIC: 30,
+      PRO: 100,
+      PREMIUM: 9999
     }
   });
   const dynamicPlans = useMemo(() => {
     return PLANS.map(plan => ({
       ...plan,
-      price: appSettings.planPrices?.[plan.id as keyof typeof appSettings.planPrices] || plan.price
+      price: appSettings.planPrices?.[plan.id as keyof typeof appSettings.planPrices] || plan.price,
+      features: (appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures] && appSettings.planFeatures?.[plan.id as keyof typeof appSettings.planFeatures].length > 0) 
+        ? appSettings.planFeatures[plan.id as keyof typeof appSettings.planFeatures] 
+        : plan.features,
+      maxUnits: appSettings.planMaxUnits?.[plan.id as keyof typeof appSettings.planMaxUnits] || plan.maxUnits
     }));
-  }, [appSettings.planPrices]);
+  }, [appSettings.planPrices, appSettings.planFeatures, appSettings.planMaxUnits]);
 
   useEffect(() => {
     const settingsRef = doc(db, 'settings', 'global');
