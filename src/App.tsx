@@ -3415,14 +3415,73 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         planId: newCondo.planId,
         subscriptionStatus: newCondo.subscriptionStatus,
         trialEndsAt: newCondo.subscriptionStatus === 'TRIAL' ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : undefined,
-        adminId: '',
+        adminId: user.id, // Atribuir usuário criador como admin
         createdAt: new Date().toISOString(),
         address: ''
       };
       await setDoc(condoRef, condoData);
+
+      // Pré-popular comunicados de boas-vindas
+      const welcomeAnnRef = doc(collection(db, 'condos', condoRef.id, 'announcements'));
+      await setDoc(welcomeAnnRef, {
+        id: welcomeAnnRef.id,
+        condoId: condoRef.id,
+        title: 'Bem-vindo ao CondoPro!',
+        content: `Olá! Estamos muito felizes em iniciar a gestão do condomínio ${newCondo.name} através da nossa plataforma. Aqui você poderá gerenciar moradores, comunicados, reservas e muito mais.`,
+        category: 'GENERAL',
+        priority: 'HIGH',
+        createdAt: new Date().toISOString(),
+        authorName: user.name
+      });
+
+      // Pré-popular tarefas de manutenção iniciais
+      const initialTasks = [
+        { title: 'Inspeção de Elevadores', category: 'ELEVATOR', frequency: 'MONTHLY', desc: 'Verificação mensal preventiva dos elevadores.' },
+        { title: 'Limpeza de Caixas d\'água', category: 'OTHER', frequency: 'YEARLY', desc: 'Limpeza e desinfecção obrigatória anual.' },
+        { title: 'Manutenção de Portões', category: 'GATE', frequency: 'QUARTERLY', desc: 'Lubrificação e ajuste dos motores dos portões.' }
+      ];
+
+      for (const task of initialTasks) {
+        const taskRef = doc(collection(db, 'condos', condoRef.id, 'maintenance'));
+        await setDoc(taskRef, {
+          id: taskRef.id,
+          condoId: condoRef.id,
+          title: task.title,
+          description: task.desc,
+          category: task.category,
+          frequency: task.frequency,
+          status: 'PENDING',
+          nextDueDate: format(addDays(new Date(), 15), 'yyyy-MM-dd')
+        });
+      }
+
+      // Pré-popular primeira Assembleia
+      const assemblyRef = doc(collection(db, 'condos', condoRef.id, 'assemblies'));
+      await setDoc(assemblyRef, {
+        id: assemblyRef.id,
+        condoId: condoRef.id,
+        title: 'Assembleia de Instalação',
+        description: 'Votação sobre as prioridades iniciais do condomínio e aprovação do regimento interno.',
+        startDate: new Date().toISOString(),
+        endDate: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
+        status: 'ACTIVE',
+        items: [
+          {
+            id: 'item1',
+            question: 'Qual deve ser a prioridade de investimento nos primeiros 3 meses?',
+            options: ['Segurança (Câmeras/Portaria)', 'Lazer (Parquinho/Piscina)', 'Sustentabilidade (Energia Solar)'],
+            votes: {}
+          }
+        ],
+        createdAt: new Date().toISOString()
+      });
+
       await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Slug: ${condoData.slug}`, 'global');
       setShowAddCondoModal(false);
       setNewCondo({ name: '', slug: '', city: '', units: 0, planId: 'BASIC', subscriptionStatus: 'ACTIVE' });
+      
+      // Opcional: Entrar no modo gerenciamento automaticamente
+      setManagedCondoId(condoRef.id);
     } catch (err) {
       console.error("Erro ao adicionar condomínio:", err);
       handleFirestoreError(err, OperationType.CREATE, 'condos');
