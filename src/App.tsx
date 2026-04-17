@@ -5111,8 +5111,14 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             <p className="text-[10px] text-gray-400">{u.login || '-'}</p>
                           </td>
                           <td className="px-8 py-4">
-                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${u.role === 'SUPER_ADMIN' ? 'bg-orange-100 text-orange-600' : u.role === 'CONDO_ADMIN' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
-                              {u.role}
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                              u.role === 'SUPER_ADMIN' ? 'bg-orange-100 text-orange-600' : 
+                              u.role === 'CONDO_ADMIN' ? 'bg-blue-100 text-blue-600' : 
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {u.role === 'SUPER_ADMIN' ? 'Super Admin' : 
+                               u.role === 'CONDO_ADMIN' ? 'Síndico' : 
+                               'Morador'}
                             </span>
                           </td>
                           <td className="px-8 py-4 text-sm font-medium text-gray-600">
