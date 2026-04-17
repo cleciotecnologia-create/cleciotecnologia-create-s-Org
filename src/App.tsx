@@ -515,6 +515,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [showFaceIDModal, setShowFaceIDModal] = useState(false);
   const [faceIDStep, setFaceIDStep] = useState(0);
   const [showAddOccurrenceModal, setShowAddOccurrenceModal] = useState(false);
+  const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
+  const [financeFilter, setFinanceFilter] = useState<'ALL' | 'PAID' | 'PENDING' | 'OVERDUE'>('ALL');
+  const [newInvoice, setNewInvoice] = useState<Partial<Invoice>>({
+    amount: 0,
+    dueDate: new Date().toISOString().split('T')[0],
+    type: 'CONDO_FEE',
+    description: 'Taxa Condominial',
+    status: 'PENDING'
+  });
   const [newOccurrence, setNewOccurrence] = useState({
     title: '',
     description: '',
@@ -1219,6 +1228,37 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/invoices/${invoiceId}`);
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    if (!user.condoId || !newInvoice.residentId || !newInvoice.amount) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const invoicesRef = collection(db, 'condos', user.condoId, 'invoices');
+      await addDoc(invoicesRef, {
+        ...newInvoice,
+        amount: Number(newInvoice.amount),
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      });
+      setShowAddInvoiceModal(false);
+      setNewInvoice({
+        amount: 0,
+        dueDate: new Date().toISOString().split('T')[0],
+        type: 'CONDO_FEE',
+        description: 'Taxa Condominial',
+        status: 'PENDING'
+      });
+      alert("Boleto gerado com sucesso!");
+      createAuditLog('Boleto gerado', 'PAYMENT', user.condoId);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/invoices`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -3243,21 +3283,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Receita Mensal</p>
-                        <p className="text-3xl font-black text-slate-800">R$ 42.500,00</p>
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Receita Acumulada</p>
+                        <p className="text-3xl font-black text-slate-800">R$ {invoices.filter(i => i.status === 'PAID').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                         <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
-                          <ArrowRight className="w-3 h-3 -rotate-45" /> +12% vs mês anterior
+                          <ArrowRight className="w-3 h-3 -rotate-45" /> Total recebido
                         </p>
                       </div>
                       <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
                         <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Inadimplência</p>
-                        <p className="text-3xl font-black text-red-500">R$ 1.840,00</p>
-                        <p className="text-xs text-red-400 font-bold mt-2">4 moradores pendentes</p>
+                        <p className="text-3xl font-black text-red-500">R$ {invoices.filter(i => i.status === 'OVERDUE').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-red-400 font-bold mt-2">{invoices.filter(i => i.status === 'OVERDUE').length} moradores com pendências</p>
                       </div>
                       <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Fundo de Reserva</p>
-                        <p className="text-3xl font-black text-green-600">R$ 128.400,00</p>
-                        <p className="text-xs text-gray-400 font-bold mt-2">Meta: R$ 150k</p>
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Pendente Geral</p>
+                        <p className="text-3xl font-black text-orange-500">R$ {invoices.filter(i => i.status === 'PENDING').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-orange-400 font-bold mt-2">{invoices.filter(i => i.status === 'PENDING').length} boletos em aberto</p>
                       </div>
                     </div>
 
@@ -3290,10 +3330,31 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     </div>
 
                     <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
                         <div>
                           <h3 className="text-lg font-bold text-slate-800">Gestão de Boletos</h3>
                           <p className="text-xs text-slate-400">Envie lembretes e acompanhe o recebimento das taxas.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                          <div className="flex bg-slate-200 p-1 rounded-xl">
+                            {(['ALL', 'PENDING', 'PAID', 'OVERDUE'] as const).map((f) => (
+                              <button
+                                key={f}
+                                onClick={() => setFinanceFilter(f)}
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                                  financeFilter === f ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                              >
+                                {f === 'ALL' ? 'Todos' : f === 'PENDING' ? 'Pendentes' : f === 'PAID' ? 'Pagos' : 'Atrasados'}
+                              </button>
+                            ))}
+                          </div>
+                          <button 
+                            onClick={() => setShowAddInvoiceModal(true)}
+                            className="bg-blue-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-blue-600/20 flex items-center gap-2 hover:bg-blue-700 transition-all ml-auto md:ml-0"
+                          >
+                            <Plus className="w-4 h-4" /> Gerar Novo Boleto
+                          </button>
                         </div>
                       </div>
                       <div className="overflow-x-auto">
@@ -3309,7 +3370,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {invoices.map((inv) => (
+                            {invoices
+                              .filter(inv => financeFilter === 'ALL' || inv.status === financeFilter)
+                              .map((inv) => (
                               <tr key={inv.id} className="hover:bg-slate-50 transition-all">
                                 <td className="px-8 py-4">
                                   <p className="font-bold text-slate-800">{residents.find(r => r.id === inv.residentId)?.name || 'N/A'}</p>
@@ -4418,6 +4481,104 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLoading ? 'Enviando...' : 'Registrar Ocorrência'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Invoice Modal */}
+      <AnimatePresence>
+        {showAddInvoiceModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddInvoiceModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <h3 className="text-xl font-bold text-slate-800">Novo Faturamento</h3>
+                <button onClick={() => setShowAddInvoiceModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Morador / Unidade</label>
+                  <select 
+                    value={newInvoice.residentId || ''}
+                    onChange={(e) => {
+                      const res = residents.find(r => r.id === e.target.value);
+                      setNewInvoice({...newInvoice, residentId: e.target.value, description: `Taxa Condominial - Unid ${res?.unit || ''}`});
+                    }}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Selecionar Morador</option>
+                    {residents.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} (Unid {r.unit})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Valor (R$)</label>
+                    <input 
+                      type="number" 
+                      value={newInvoice.amount || ''}
+                      onChange={(e) => setNewInvoice({...newInvoice, amount: parseFloat(e.target.value)})}
+                      placeholder="0.00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vencimento</label>
+                    <input 
+                      type="date" 
+                      value={newInvoice.dueDate}
+                      onChange={(e) => setNewInvoice({...newInvoice, dueDate: e.target.value})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</label>
+                  <select 
+                    value={newInvoice.type}
+                    onChange={(e) => setNewInvoice({...newInvoice, type: e.target.value as any})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="CONDO_FEE">Taxa Condominial</option>
+                    <option value="RESERVE_FUND">Fundo de Reserva</option>
+                    <option value="GAS">Consumo de Gás</option>
+                    <option value="EXTRA">Taxa Extra</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
+                  <input 
+                    type="text" 
+                    value={newInvoice.description}
+                    onChange={(e) => setNewInvoice({...newInvoice, description: e.target.value})}
+                    placeholder="Ex: Referência Abril/2026" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <button 
+                  onClick={handleCreateInvoice}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+                  Gerar Boleto
                 </button>
               </div>
             </motion.div>
