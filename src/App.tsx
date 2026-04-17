@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { 
   Bell, Plus, MapPin, Users, AlertTriangle, Sparkles, Shield, Building2, 
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
+  Mail as MailIcon,
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
   MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
   ArrowRight, ArrowLeft, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
@@ -60,7 +61,8 @@ import {
   getDocs,
   limit,
   orderBy,
-  addDoc
+  addDoc,
+  deleteDoc
 } from 'firebase/firestore';
 
 // --- Error Handling ---
@@ -109,9 +111,9 @@ const MOCK_CONDO: Condo = {
 };
 
 const MOCK_RESIDENTS: Resident[] = [
-  { id: 'r1', condoId: 'c1', name: 'Ana Silva', unit: '101A', email: 'ana@email.com', phone: '(11) 98888-7777', status: 'ACTIVE', isOwner: true },
-  { id: 'r2', condoId: 'c1', name: 'Bruno Santos', unit: '202B', email: 'bruno@email.com', phone: '(11) 97777-6666', status: 'ACTIVE', isOwner: true },
-  { id: 'r3', condoId: 'c1', name: 'Carla Dias', unit: '303C', email: 'carla@email.com', phone: '(11) 96666-5555', status: 'INACTIVE', isOwner: false, ownerId: 'r1' },
+  { id: 'r1', condoId: 'c1', name: 'Ana Silva', unit: '101A', email: 'ana@email.com', phone: '(11) 98888-7777', status: 'ACTIVE', isOwner: true, points: 1250, level: 3, badges: ['PAGADOR_PONTUAL', 'PARTICIPATIVO'] },
+  { id: 'r2', condoId: 'c1', name: 'Bruno Santos', unit: '202B', email: 'bruno@email.com', phone: '(11) 97777-6666', status: 'ACTIVE', isOwner: true, points: 840, level: 2, badges: ['SOCIAL'] },
+  { id: 'r3', condoId: 'c1', name: 'Carla Dias', unit: '303C', email: 'carla@email.com', phone: '(11) 96666-5555', status: 'INACTIVE', isOwner: false, ownerId: 'r1', points: 150, level: 1 },
 ];
 
 const MOCK_OCCURRENCES: Occurrence[] = [
@@ -121,6 +123,28 @@ const MOCK_OCCURRENCES: Occurrence[] = [
 
 // --- Components ---
 
+const Logo = ({ collapsed = false, light = false }: { collapsed?: boolean, light?: boolean }) => (
+  <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
+    <div className="relative">
+      <div className={`${light ? 'bg-white' : 'bg-blue-600'} w-10 h-10 rounded-xl rotate-3 absolute inset-0 opacity-20 animate-pulse`} />
+      <div className={`${light ? 'bg-white' : 'bg-blue-600'} w-10 h-10 rounded-xl -rotate-3 absolute inset-0 opacity-20`} />
+      <div className={`relative bg-gradient-to-br ${light ? 'from-white to-slate-100' : 'from-blue-600 to-blue-700'} p-2.5 rounded-xl shadow-lg ${light ? 'shadow-white/20' : 'shadow-blue-600/30'} flex items-center justify-center`}>
+        <Building2 className={`w-5 h-5 ${light ? 'text-blue-600' : 'text-white'}`} />
+      </div>
+    </div>
+    {!collapsed && (
+      <div className="flex flex-col">
+        <span className={`font-black text-xl font-headline tracking-tighter leading-none ${light ? 'text-white' : 'text-slate-800'}`}>
+          Condo<span className={light ? 'text-blue-200' : 'text-blue-600'}>Pro</span>
+        </span>
+        <span className={`text-[9px] font-black uppercase tracking-[0.2em] ${light ? 'text-blue-200/60' : 'text-slate-400'} mt-0.5 whitespace-nowrap`}>
+          Gestão Inteligente
+        </span>
+      </div>
+    )}
+  </div>
+);
+
 const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogin: () => void, onShowLoginModal: () => void, plans: Plan[], appSettings: any }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -128,12 +152,7 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogi
     <div className="bg-white">
       {/* Navbar */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="bg-primary p-1.5 rounded-lg">
-            <Building2 className="w-6 h-6 text-white" />
-          </div>
-          <span className="text-xl font-bold text-primary font-headline tracking-tight">CondoPro</span>
-        </div>
+        <Logo />
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-8">
@@ -273,11 +292,10 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogi
       <footer className="bg-primary py-20 px-6 text-white/60">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
           <div className="col-span-1 md:col-span-2">
-            <div className="flex items-center gap-2 mb-6">
-              <Building2 className="w-8 h-8 text-white" />
-              <span className="text-2xl font-bold text-white font-headline">Gestão Condomínio Pro</span>
+            <div className="mb-6">
+              <Logo light />
             </div>
-            <p className="max-w-sm leading-relaxed">
+            <p className="max-w-sm leading-relaxed mt-4">
               Transformando a gestão imobiliária através da tecnologia e transparência. A solução definitiva para síndicos profissionais e administradoras.
             </p>
           </div>
@@ -339,6 +357,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [minutes, setMinutes] = useState<Minute[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [typingUsers, setTypingUsers] = useState<{[key: string]: { name: string, lastUpdate: number }}>({});
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [newResident, setNewResident] = useState({ 
@@ -362,6 +381,170 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [visitorSuccess, setVisitorSuccess] = useState<Visitor | null>(null);
   const [showFaceIDModal, setShowFaceIDModal] = useState(false);
   const [faceIDStep, setFaceIDStep] = useState(0);
+
+  const handleSendEmail = async (to: string, subject: string, body: string) => {
+    try {
+      const response = await fetch('/api/notify/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Erro ao enviar e-mail');
+      return true;
+    } catch (error) {
+      console.error('Erro ao disparar e-mail:', error);
+      alert(error instanceof Error ? error.message : 'Erro ao enviar e-mail. Verifique a configuração do servidor.');
+      return false;
+    }
+  };
+
+  const handleSendWhatsApp = async (to: string, message: string) => {
+    try {
+      // Remover formatação do telefone
+      const cleanPhone = to.replace(/\D/g, '');
+      const response = await fetch('/api/notify/whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: cleanPhone, message }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Erro ao enviar WhatsApp');
+      return true;
+    } catch (error) {
+      console.error('Erro ao disparar WhatsApp:', error);
+      alert(error instanceof Error ? error.message : 'Erro ao enviar WhatsApp. Verifique a configuração do servidor.');
+      return false;
+    }
+  };
+
+  const handleNotifyResident = async (resident: Resident, type: 'EMAIL' | 'WHATSAPP') => {
+    setIsLoading(true);
+    let success = false;
+    
+    if (type === 'EMAIL') {
+      const subject = `Comunicado do Condomínio ${condo?.name || ''}`;
+      const body = `
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #2563eb;">Olá, ${resident.name}!</h2>
+          <p>Este é um lembrete do Condomínio <strong>${condo?.name || ''}</strong>.</p>
+          <p>Por favor, acesse o aplicativo para conferir seus novos boletos e comunicados.</p>
+          <br/>
+          <a href="${window.location.origin}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+            Acessar Plataforma
+          </a>
+          <p style="font-size: 12px; color: #666; margin-top: 30px;">Gerado por CondoPro.</p>
+        </div>
+      `;
+      success = await handleSendEmail(resident.email, subject, body);
+    } else {
+      const message = `Olá ${resident.name}, aqui é do Condomínio ${condo?.name || ''}. Você tem novos boletos e comunicados disponíveis no aplicativo CondoPro. Acesse agora: ${window.location.origin}`;
+      success = await handleSendWhatsApp(resident.phone, message);
+    }
+
+    if (success) {
+      alert(`Notificação por ${type} enviada com sucesso para ${resident.name}!`);
+    }
+    setIsLoading(false);
+  };
+
+  const handleNotifyAllAnnouncements = async (announcement: Announcement) => {
+    setIsLoading(true);
+    let sentCount = 0;
+    
+    for (const resident of residents) {
+      if (!resident.email) continue;
+      
+      const subject = `NOVO COMUNICADO: ${announcement.title}`;
+      const body = `
+        <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #eee; border-radius: 12px;">
+          <h2 style="color: #2563eb; margin-top: 0;">${announcement.title}</h2>
+          <p style="font-size: 14px; color: #666;">${new Date(announcement.createdAt).toLocaleDateString()}</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;"/>
+          <p style="line-height: 1.6;">${announcement.content}</p>
+          <div style="margin-top: 30px; padding: 15px; background: #f8fafc; border-radius: 8px;">
+            <p style="margin: 0; font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase;">Acesse os detalhes no APP:</p>
+            <a href="${window.location.origin}" style="display: inline-block; margin-top: 10px; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+              Abrir CondoPro
+            </a>
+          </div>
+        </div>
+      `;
+      const success = await handleSendEmail(resident.email, subject, body);
+      if (success) sentCount++;
+    }
+
+    alert(`${sentCount} moradores foram notificados por email sobre o comunicado: ${announcement.title}`);
+    setIsLoading(false);
+  };
+
+  const handleNotifyBoleto = async (invoice: Invoice) => {
+    setIsLoading(true);
+    const resident = residents.find(r => r.id === invoice.residentId);
+    if (!resident) {
+      alert('Morador não encontrado!');
+      setIsLoading(false);
+      return;
+    }
+
+    const subject = `SEU BOLETO: ${invoice.description} - Condomínio ${condo?.name || ''}`;
+    const body = `
+      <div style="font-family: sans-serif; padding: 25px; color: #333; border: 1px solid #e2e8f0; border-radius: 16px; max-width: 600px; margin: auto;">
+        <h2 style="color: #2563eb; margin-bottom: 20px;">Olá, ${resident.name}!</h2>
+        <p>Seu boleto referente a <strong>${invoice.description}</strong> já está disponível.</p>
+        
+        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin: 25px 0;">
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #64748b;">DETALHES DO PAGAMENTO</p>
+          <p style="margin: 0; font-size: 24px; font-weight: 800; color: #1e293b;">R$ ${invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: bold; color: ${invoice.status === 'OVERDUE' ? '#ef4444' : '#1e293b'};">
+            Vencimento: ${new Date(invoice.dueDate).toLocaleDateString()}
+          </p>
+        </div>
+
+        <p>Acesse o aplicativo para baixar o PDF completo ou copiar o código de barras/PIX.</p>
+        
+        <div style="text-align: center; margin-top: 35px;">
+          <a href="${window.location.origin}" style="display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);">
+            Ver Boleto no CondoPro
+          </a>
+        </div>
+        
+        <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 40px;">
+          Este é um e-mail automático enviado por CondoPro em nome de ${condo?.name || 'seu condomínio'}.
+        </p>
+      </div>
+    `;
+
+    const success = await handleSendEmail(resident.email, subject, body);
+    if (success) {
+      alert(`Boleto enviado com sucesso para ${resident.name}!`);
+    }
+    setIsLoading(false);
+  };
+
+  const handleAddPoints = async (residentId: string, amount: number, reason: string) => {
+    if (!user.condoId) return;
+    try {
+      const residentRef = doc(db, 'condos', user.condoId, 'residents', residentId);
+      const residentSnap = await getDoc(residentRef);
+      if (residentSnap.exists()) {
+        const data = residentSnap.data() as Resident;
+        const currentPoints = data.points || 0;
+        const newPoints = currentPoints + amount;
+        const level = Math.floor(newPoints / 500) + 1;
+        
+        await setDoc(residentRef, {
+          ...data,
+          points: newPoints,
+          level: level
+        }, { merge: true });
+
+        console.log(`Ganhou ${amount} pontos por: ${reason}`);
+      }
+    } catch (err) {
+      console.error("Error updating points:", err);
+    }
+  };
 
   const handleFaceIDRegistration = () => {
     setShowFaceIDModal(true);
@@ -430,6 +613,17 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     const unsubAnnouncements = onSnapshot(announcementsQuery, (snap) => {
       setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/announcements`));
+
+    const typingRef = collection(db, 'condos', user.condoId, 'typing');
+    const unsubTyping = onSnapshot(typingRef, (snap) => {
+      const typing: {[key: string]: any} = {};
+      snap.docs.forEach(d => {
+        if (d.id !== user.id) {
+          typing[d.id] = d.data();
+        }
+      });
+      setTypingUsers(typing);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/typing`));
 
     const packagesRef = collection(db, 'condos', user.condoId, 'packages');
     let packagesQuery = query(packagesRef, orderBy('receivedAt', 'desc'), limit(50));
@@ -687,6 +881,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubVisitors();
       unsubMessages();
       unsubAnnouncements();
+      unsubTyping();
       unsubPackages();
       unsubInvoices();
       unsubAuditLogs();
@@ -698,7 +893,31 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubInfractions();
       unsubMinutes();
     };
-  }, [user.condoId]);
+  }, [user.condoId, user.id, user.name]);
+
+  useEffect(() => {
+    if (!user.condoId || !user.id || !newMessage.trim()) {
+      if (user.condoId && user.id) {
+        const typingDocRef = doc(db, 'condos', user.condoId, 'typing', user.id);
+        deleteDoc(typingDocRef).catch(console.error);
+      }
+      return;
+    }
+    
+    const typingDocRef = doc(db, 'condos', user.condoId, 'typing', user.id);
+    setDoc(typingDocRef, {
+      name: user.name,
+      lastUpdate: Date.now()
+    }).catch(console.error);
+
+    const timeout = setTimeout(() => {
+      deleteDoc(typingDocRef).catch(console.error);
+    }, 5000);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [newMessage, user.condoId, user.id, user.name]);
 
   const handleAddResident = async () => {
     if (!newResident.name || !newResident.email) {
@@ -796,8 +1015,68 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         createdAt: new Date().toISOString()
       });
       setNewMessage('');
+      
+      // Award points for participation
+      handleAddPoints(user.id, 5, 'Participação no chat');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/messages`);
+    }
+  };
+
+  const handleVote = async (assemblyId: string, itemId: string, optionIdx: number) => {
+    if (!user.condoId || user.role !== 'RESIDENT') return;
+    try {
+      const resident = residents.find(r => r.id === user.id);
+      if (!resident) return;
+
+      const assemblyRef = doc(db, 'condos', user.condoId, 'assemblies', assemblyId);
+      const assemblySnap = await getDoc(assemblyRef);
+      if (assemblySnap.exists()) {
+        const data = assemblySnap.data() as Assembly;
+        const updatedItems = data.items.map(item => {
+          if (item.id === itemId) {
+            return {
+              ...item,
+              votes: {
+                ...item.votes,
+                [resident.unit]: optionIdx
+              }
+            };
+          }
+          return item;
+        });
+
+        await setDoc(assemblyRef, { items: updatedItems }, { merge: true });
+        createAuditLog('Votou em assembleia', 'ASSEMBLY', assemblyId, `Questão: ${itemId}, Opção: ${optionIdx}`);
+        
+        // Add participation points
+        handleAddPoints(user.id, 50, 'Voto em assembleia');
+        alert("Voto registrado com sucesso! Você ganhou 50 pontos.");
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/assemblies/${assemblyId}`);
+    }
+  };
+
+  const handleMarkInvoicePaid = async (invoiceId: string) => {
+    if (!user.condoId) return;
+    try {
+      const invoiceRef = doc(db, 'condos', user.condoId, 'invoices', invoiceId);
+      const invoiceSnap = await getDoc(invoiceRef);
+      if (invoiceSnap.exists()) {
+        const inv = invoiceSnap.data() as Invoice;
+        await setDoc(invoiceRef, { 
+          status: 'PAID', 
+          paymentDate: new Date().toISOString() 
+        }, { merge: true });
+
+        // Award points for on-time payment
+        handleAddPoints(inv.residentId, 100, 'Pagamento em dia');
+        createAuditLog('Faturamento marcado como pago', 'PAYMENT', invoiceId);
+        alert("Faturamento marcado como pago! O morador recebeu 100 pontos.");
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/invoices/${invoiceId}`);
     }
   };
 
@@ -815,6 +1094,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'packages', label: 'Encomendas', icon: PackageIcon },
     { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true },
     { id: 'cameras', label: 'Câmeras', icon: Camera, premiumOnly: true },
+    { id: 'ranking', label: 'Ranking & Prêmios', icon: Award },
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
     { id: 'finance', label: 'Financeiro', icon: DollarSign },
     { id: 'gas', label: 'Consumo de Gás', icon: Zap },
@@ -882,23 +1162,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       <aside className={`bg-slate-900 text-white transition-all duration-500 ease-in-out flex flex-col fixed inset-y-0 left-0 z-50 lg:relative ${
         isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0 w-0 lg:w-24'
       }`}>
-        <div className={`p-8 flex items-center gap-3 border-b border-white/5 ${!isSidebarOpen && 'lg:justify-center'}`}>
-          <div className="bg-blue-500 p-2 rounded-xl shadow-lg shadow-blue-500/20">
-            {appSettings.logo ? (
-              <img src={appSettings.logo} alt="Logo" className="w-6 h-6 object-contain" referrerPolicy="no-referrer" />
-            ) : (
-              <Building2 className="w-6 h-6 text-white flex-shrink-0" />
-            )}
-          </div>
-          {isSidebarOpen && (
-            <motion.span 
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="font-black text-xl font-headline tracking-tight"
-            >
-              CondoPro
-            </motion.span>
-          )}
+        <div className={`p-8 border-b border-white/5`}>
+          <Logo collapsed={!isSidebarOpen} light />
         </div>
         
         <nav className="flex-grow p-4 space-y-1 mt-4 overflow-y-auto custom-scrollbar">
@@ -1148,7 +1413,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <h3 className="text-xl sm:text-2xl font-headline font-extrabold text-slate-800">Últimas Ocorrências</h3>
                         <p className="text-sm text-slate-400 mt-1">Acompanhe o que está acontecendo agora.</p>
                       </div>
-                      <button className="text-sm font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-4 py-2 rounded-xl transition-colors">
+                      <button 
+                        onClick={() => setActiveMenu('occurrences')}
+                        className="text-sm font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-4 py-2 rounded-xl transition-colors"
+                      >
                         Ver todas
                       </button>
                     </div>
@@ -1178,12 +1446,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <h3 className="text-2xl font-headline font-extrabold text-slate-800 mb-10">Ações Rápidas</h3>
                     <div className="grid grid-cols-2 gap-6">
                       {[
-                        { label: 'Novo Morador', icon: UserPlus, color: 'bg-blue-50 text-blue-600' },
-                        { label: 'Comunicado', icon: MessageSquare, color: 'bg-purple-50 text-purple-600' },
-                        { label: 'Nova Reserva', icon: Calendar, color: 'bg-emerald-50 text-emerald-600' },
-                        { label: 'Financeiro', icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
+                        { label: 'Novo Morador', icon: UserPlus, color: 'bg-blue-50 text-blue-600', action: () => { setActiveMenu('residents'); setShowAddResidentModal(true); } },
+                        { label: 'Comunicado', icon: MessageSquare, color: 'bg-purple-50 text-purple-600', action: () => setActiveMenu('announcements') },
+                        { label: 'Nova Reserva', icon: Calendar, color: 'bg-emerald-50 text-emerald-600', action: () => setActiveMenu('reservations') },
+                        { label: 'Financeiro', icon: DollarSign, color: 'bg-rose-50 text-rose-600', action: () => setActiveMenu('finance') },
                       ].map((action, i) => (
-                        <button key={i} className="flex flex-col items-center justify-center p-8 rounded-3xl bg-slate-50 hover:bg-slate-900 hover:text-white transition-all group relative overflow-hidden">
+                        <button 
+                          key={i} 
+                          onClick={action.action}
+                          className="flex flex-col items-center justify-center p-8 rounded-3xl bg-slate-50 hover:bg-slate-900 hover:text-white transition-all group relative overflow-hidden"
+                        >
                           <div className={`${action.color} w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:bg-white/10 group-hover:text-white transition-colors`}>
                             <action.icon className="w-6 h-6" />
                           </div>
@@ -1224,6 +1496,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Contato</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Notificar</th>
                         <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
                       </tr>
                     </thead>
@@ -1244,6 +1517,24 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                               {res.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
                             </span>
+                          </td>
+                          <td className="px-8 py-4">
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => handleNotifyResident(res, 'EMAIL')}
+                                className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                                title="Enviar E-mail"
+                              >
+                                <MailIcon className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleNotifyResident(res, 'WHATSAPP')}
+                                className="p-2 hover:bg-green-50 text-green-600 rounded-lg transition-colors"
+                                title="Enviar WhatsApp"
+                              >
+                                <Smartphone className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-8 py-4">
                             <button className="text-primary hover:underline text-sm font-bold">Editar</button>
@@ -1323,9 +1614,32 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                                   })}
                                 </div>
                                 {assembly.status === 'ACTIVE' && (
-                                  <button className="mt-6 w-full py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-900 hover:text-white transition-all">
-                                    Votar agora
-                                  </button>
+                                  <div className="mt-6 space-y-2 text-left">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Seu Voto</p>
+                                    {item.options.map((opt, oIdx) => {
+                                      const userUnit = residents.find(r => r.id === user.id)?.unit || '';
+                                      const hasVoted = item.votes[userUnit] !== undefined;
+                                      const isSelected = item.votes[userUnit] === oIdx;
+
+                                      return (
+                                        <button 
+                                          key={oIdx}
+                                          onClick={() => handleVote(assembly.id, item.id, oIdx)}
+                                          disabled={hasVoted}
+                                          className={`w-full py-3 rounded-xl text-xs font-bold transition-all border flex items-center justify-between px-4 ${
+                                            isSelected 
+                                            ? 'bg-blue-600 border-blue-600 text-white' 
+                                            : hasVoted
+                                            ? 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:border-blue-600 hover:text-blue-600'
+                                          }`}
+                                        >
+                                          <span>{opt}</span>
+                                          {isSelected && <Check className="w-4 h-4" />}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                             ))}
@@ -1812,6 +2126,126 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
+            {activeMenu === 'ranking' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center bg-gradient-to-r from-blue-700 to-indigo-800 p-8 rounded-[2.5rem] text-white overflow-hidden relative group">
+                  <div className="relative z-10">
+                    <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
+                      Ranking do Condomínio <Award className="w-8 h-8 text-amber-400" />
+                    </h3>
+                    <p className="text-blue-200">Engaje-se na comunidade e ganhe prêmios exclusivos.</p>
+                  </div>
+                  <div className="absolute right-[-20px] top-[-20px] opacity-10 group-hover:scale-110 transition-transform">
+                    <Target className="w-64 h-64" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Minhas Estatísticas */}
+                  {user.role === 'RESIDENT' && (
+                    <div className="lg:col-span-1 space-y-6">
+                      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                        <h4 className="font-bold text-slate-800 mb-6">Minha Pontuação</h4>
+                        <div className="text-center space-y-4">
+                          <div className="relative inline-block">
+                             <div className="w-32 h-32 rounded-full border-8 border-slate-100 flex items-center justify-center">
+                               <div className="text-center">
+                                 <p className="text-3xl font-black text-blue-600">{residents.find(r => r.id === user.id)?.points || 0}</p>
+                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">PONTOS</p>
+                               </div>
+                             </div>
+                             <div className="absolute -bottom-2 right-0 bg-amber-500 text-white w-10 h-10 rounded-full flex items-center justify-center font-bold border-4 border-white">
+                               {residents.find(r => r.id === user.id)?.level || 1}
+                             </div>
+                          </div>
+                          <p className="text-sm font-bold text-slate-600 mt-4">Nível {residents.find(r => r.id === user.id)?.level || 1} - Explorador</p>
+                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${((residents.find(r => r.id === user.id)?.points || 0) % 500) / 500 * 100}%` }}
+                              className="h-full bg-blue-600"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-400">Faltam {500 - ((residents.find(r => r.id === user.id)?.points || 0) % 500)} pontos para o próximo nível</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                        <h4 className="font-bold text-slate-800 mb-6">Minhas Medalhas</h4>
+                        <div className="flex flex-wrap gap-4 justify-center">
+                          {['PAGADOR_PONTUAL', 'PARTICIPATIVO', 'SOCIAL'].map((badge, idx) => {
+                            const hasBadge = residents.find(r => r.id === user.id)?.badges?.includes(badge);
+                            return (
+                              <div key={idx} className={`w-12 h-12 rounded-xl flex items-center justify-center ${hasBadge ? 'bg-amber-100 text-amber-600 shadow-sm' : 'bg-slate-50 text-slate-200'}`}>
+                                {badge === 'PAGADOR_PONTUAL' ? <CreditCard className="w-6 h-6" /> : 
+                                 badge === 'PARTICIPATIVO' ? <Gavel className="w-6 h-6" /> :
+                                 <MessageSquare className="w-6 h-6" />}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Leaderboard */}
+                  <div className={`${user.role === 'RESIDENT' ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden`}>
+                    <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <h4 className="font-bold text-slate-800">Principais Moradores</h4>
+                      <div className="flex gap-2">
+                        <button className="text-xs font-bold text-slate-400 hover:text-blue-600">Este Mês</button>
+                        <span className="text-slate-100">|</span>
+                        <button className="text-xs font-bold text-blue-600">Sempre</button>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {[...residents].sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 10).map((res, idx) => (
+                        <div key={res.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
+                          <div className="flex items-center gap-6">
+                            <span className={`w-8 text-center font-black ${idx === 0 ? 'text-amber-500 text-xl' : idx === 1 ? 'text-slate-400 text-lg' : idx === 2 ? 'text-amber-700 text-lg' : 'text-slate-300'}`}>
+                              #{idx + 1}
+                            </span>
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600">
+                                {res.name.split(' ').map(n => n[0]).join('')}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-800">{res.name}</p>
+                                <p className="text-xs text-slate-400">Unidade {res.unit}</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xl font-black text-slate-800 leading-none">{res.points || 0}</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">PONTOS • Nível {res.level || 1}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                   {[
+                     { icon: CreditCard, title: 'Pagador em Dia', pts: '+100 pts', color: 'text-emerald-500' },
+                     { icon: Gavel, title: 'Assembleias', pts: '+50 pts', color: 'text-blue-500' },
+                     { icon: MessageSquare, title: 'Atividade no Chat', pts: '+5 pts', color: 'text-purple-500' },
+                     { icon: Camera, title: 'Face ID', pts: '+200 pts', color: 'text-amber-500' }
+                   ].map((rule, i) => (
+                     <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 text-left">
+                       <div className={`${rule.color} bg-slate-50 p-3 rounded-2xl`}>
+                         <rule.icon className="w-6 h-6" />
+                       </div>
+                       <div>
+                         <p className="text-sm font-bold text-slate-800">{rule.title}</p>
+                         <p className="text-sm font-black text-blue-600">{rule.pts}</p>
+                       </div>
+                     </div>
+                   ))}
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'minutes' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -2068,11 +2502,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <p className="text-slate-600 leading-relaxed mb-6">{ann.content}</p>
                         <div className="flex justify-between items-center pt-6 border-t border-slate-100">
                           <p className="text-xs font-bold text-slate-400">Por: <span className="text-slate-800">{ann.authorName}</span></p>
-                          {ann.priority === 'HIGH' && (
-                            <span className="flex items-center gap-1 text-[10px] font-black text-red-600 uppercase tracking-widest">
-                              <AlertTriangle className="w-3 h-3" /> Alta Prioridade
-                            </span>
-                          )}
+                          <div className="flex items-center gap-4">
+                            {user.role === 'CONDO_ADMIN' && (
+                              <button 
+                                onClick={() => handleNotifyAllAnnouncements(ann)}
+                                className="flex items-center gap-2 text-[10px] font-black text-blue-600 uppercase tracking-widest hover:bg-blue-50 px-3 py-1 rounded-lg transition-all"
+                              >
+                                <MailIcon className="w-3 h-3" /> Disparar p/ E-mail
+                              </button>
+                            )}
+                            {ann.priority === 'HIGH' && (
+                              <span className="flex items-center gap-1 text-[10px] font-black text-red-600 uppercase tracking-widest">
+                                <AlertTriangle className="w-3 h-3" /> Alta Prioridade
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))
@@ -2367,6 +2811,69 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         ))}
                       </div>
                     </div>
+
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">Gestão de Boletos</h3>
+                          <p className="text-xs text-slate-400">Envie lembretes e acompanhe o recebimento das taxas.</p>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Morador / Unidade</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Referência</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {invoices.map((inv) => (
+                              <tr key={inv.id} className="hover:bg-slate-50 transition-all">
+                                <td className="px-8 py-4">
+                                  <p className="font-bold text-slate-800">{residents.find(r => r.id === inv.residentId)?.name || 'N/A'}</p>
+                                  <p className="text-xs text-slate-400">Unidade {residents.find(r => r.id === inv.residentId)?.unit || '-'}</p>
+                                </td>
+                                <td className="px-8 py-4 text-sm font-medium text-slate-600">{inv.description}</td>
+                                <td className="px-8 py-4 font-black text-slate-800">R$ {inv.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                <td className="px-8 py-4 text-sm font-bold text-slate-600">{new Date(inv.dueDate).toLocaleDateString()}</td>
+                                <td className="px-8 py-4">
+                                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                                    inv.status === 'PAID' ? 'bg-emerald-100 text-emerald-600' :
+                                    inv.status === 'OVERDUE' ? 'bg-red-100 text-red-600' :
+                                    'bg-blue-100 text-blue-600'
+                                  }`}>
+                                    {inv.status === 'PAID' ? 'Pago' : inv.status === 'OVERDUE' ? 'Atrasado' : 'Pendente'}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-4">
+                                  <div className="flex gap-2">
+                                    <button 
+                                      onClick={() => handleNotifyBoleto(inv)}
+                                      className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2"
+                                    >
+                                      <MailIcon className="w-3 h-3" /> Notificar
+                                    </button>
+                                    {user.role !== 'RESIDENT' && inv.status !== 'PAID' && (
+                                      <button 
+                                        onClick={() => handleMarkInvoicePaid(inv.id)}
+                                        className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2"
+                                      >
+                                        <CheckCircle2 className="w-3 h-3" /> Pago
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <div className="space-y-6">
@@ -2476,7 +2983,17 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                         <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Próximo Vencimento</p>
                         <h3 className="text-4xl font-black mb-6">R$ {(invoices.find(i => i.status === 'PENDING')?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
                         <div className="flex items-center gap-4">
-                          <button className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20">
+                          <button 
+                            onClick={() => {
+                              const pending = invoices.find(i => i.status === 'PENDING');
+                              if (pending) {
+                                handleMarkInvoicePaid(pending.id);
+                              } else {
+                                alert("Você não possui boletos pendentes!");
+                              }
+                            }}
+                            className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20"
+                          >
                             Pagar com PIX
                           </button>
                           <button className="bg-white/10 text-white px-8 py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10">
@@ -2669,6 +3186,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     })
                   )}
                 </div>
+
+                {Object.keys(typingUsers).length > 0 && (
+                  <div className="px-8 py-2 bg-white flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" />
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-400 italic">
+                      {Object.values(typingUsers).map((u: any) => u.name).join(', ')} {Object.keys(typingUsers).length === 1 ? 'está digitando...' : 'estão digitando...'}
+                    </p>
+                  </div>
+                )}
 
                 <form onSubmit={handleSendMessage} className="p-4 sm:p-8 bg-white border-t border-slate-100">
                   <div className="flex gap-2 sm:gap-4">
@@ -3638,13 +4168,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       <aside className={`bg-slate-900 text-white transition-all duration-300 flex flex-col fixed inset-y-0 left-0 z-50 lg:relative ${
         isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-20'
       }`}>
-        <div className={`p-6 flex items-center gap-3 border-b border-white/5 ${!isSidebarOpen && 'lg:justify-center'}`}>
-          {appSettings.logo ? (
-            <img src={appSettings.logo} alt="Logo" className="w-8 h-8 object-contain flex-shrink-0" referrerPolicy="no-referrer" />
-          ) : (
-            <Shield className="w-8 h-8 text-orange-400 flex-shrink-0" />
-          )}
-          {isSidebarOpen && <span className="font-bold font-headline truncate">{appSettings.logo ? 'CondoPro' : 'SuperAdmin'}</span>}
+        <div className={`p-6 border-b border-white/5`}>
+          <Logo collapsed={!isSidebarOpen} light />
         </div>
         <nav className="flex-grow p-4 space-y-2 overflow-y-auto custom-scrollbar">
           {menuItems.map((item) => (
@@ -4978,24 +5503,16 @@ export default function App() {
           animate={{ opacity: 1, scale: 1 }}
           className="relative"
         >
-          <div className="w-24 h-24 rounded-[2rem] bg-blue-600/10 flex items-center justify-center mb-8">
-            <Building2 className="w-12 h-12 text-blue-600" />
-          </div>
-          <div className="absolute -top-2 -right-2">
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center animate-bounce">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-          </div>
+          <Logo />
         </motion.div>
         
-        <div className="space-y-4 text-center">
-          <h2 className="text-2xl font-bold text-slate-800">CondoPro</h2>
+        <div className="mt-12 space-y-4 text-center">
           <div className="flex items-center gap-2 justify-center">
             <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
             <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse [animation-delay:0.2s]" />
             <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse [animation-delay:0.4s]" />
           </div>
-          <p className="text-slate-400 font-medium text-sm">Carregando sua experiência...</p>
+          <p className="text-slate-400 font-medium text-sm">Iniciando plataforma de gestão...</p>
         </div>
       </div>
     );

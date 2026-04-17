@@ -50,6 +50,9 @@ export interface Resident {
   isOwner: boolean;
   ownerId?: string;
   tenantIds?: string[];
+  points?: number;
+  level?: number;
+  badges?: string[];
 }
 
 export interface Occurrence {
