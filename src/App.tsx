@@ -5455,7 +5455,11 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                     <input 
                       type="text" 
                       value={newCondo.name}
-                      onChange={(e) => setNewCondo({...newCondo, name: e.target.value})}
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+                        setNewCondo({...newCondo, name, slug});
+                      }}
                       placeholder="Ex: Residencial Horizon" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
