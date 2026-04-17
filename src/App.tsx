@@ -9,7 +9,7 @@ import {
   Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
-  Smile, Frown, Meh, Briefcase, Key, Target, Award
+  Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -39,6 +39,7 @@ import {
   Infraction, Minute
 } from './types';
 import { auth, db } from './firebase';
+import { cameraService, CameraStream, CameraAction } from './services/cameraService';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -263,7 +264,16 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogi
               const features = appSettings.planFeatures?.[plan.id] || plan.features;
               
               return (
-                <div key={plan.id} className={`p-10 rounded-[2.5rem] border-2 flex flex-col ${plan.id === 'PRO' ? 'border-primary bg-primary text-white shadow-2xl shadow-primary/30 scale-105 z-10' : 'border-gray-100 bg-white text-primary'}`}>
+                <motion.div 
+                  key={plan.id} 
+                  whileHover={{ scale: plan.id === 'PRO' ? 1.08 : 1.03, y: -5 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  className={`p-10 rounded-[2.5rem] border-2 flex flex-col cursor-default transition-colors duration-300 ${
+                    plan.id === 'PRO' 
+                      ? 'border-primary bg-primary text-white shadow-2xl shadow-primary/30 scale-105 z-10' 
+                      : 'border-gray-100 bg-white text-primary hover:border-blue-200'
+                  }`}
+                >
                   {plan.id === 'PRO' && <span className="bg-white text-primary text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full w-fit mb-6">Mais Escolhido</span>}
                   <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-8">
@@ -278,10 +288,10 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogi
                       </li>
                     ))}
                   </ul>
-                  <button onClick={onLogin} className={`w-full py-4 rounded-2xl font-bold transition-all ${plan.id === 'PRO' ? 'bg-white text-primary hover:bg-gray-100' : 'bg-primary text-white hover:opacity-90'}`}>
+                  <button onClick={onLogin} className={`w-full py-4 rounded-2xl font-bold transition-all transform active:scale-95 ${plan.id === 'PRO' ? 'bg-white text-primary hover:bg-gray-100' : 'bg-primary text-white hover:opacity-90'}`}>
                     Selecionar Plano
                   </button>
-                </div>
+                </motion.div>
               );
             })}
           </div>
@@ -328,6 +338,118 @@ const LandingPage = ({ onLogin, onShowLoginModal, plans, appSettings }: { onLogi
   );
 };
 
+const PublicVisitorCard = ({ visitorId }: { visitorId: string }) => {
+  const [visitor, setVisitor] = useState<Visitor | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const condoId = urlParams.get('c');
+    
+    if (condoId && visitorId) {
+      const visitorRef = doc(db, 'condos', condoId, 'visitors', visitorId);
+      getDoc(visitorRef).then(snap => {
+        if (snap.exists()) {
+          setVisitor({ id: snap.id, ...snap.data() } as Visitor);
+        }
+        setLoading(false);
+      }).catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+  }, [visitorId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!visitor) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-white p-10 rounded-[2.5rem] shadow-xl max-w-sm w-full">
+          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
+            <AlertTriangle className="w-10 h-10" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-800 mb-2">Convite Indisponível</h2>
+          <p className="text-slate-500 text-sm">Este convite pode ter expirado ou o código é inválido.</p>
+          <button 
+            onClick={() => window.location.href = window.location.origin}
+            className="mt-8 w-full py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20"
+          >
+            Voltar ao Início
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-10 text-center border border-slate-100"
+      >
+        <div className="mb-8">
+          <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white shadow-lg shadow-blue-600/20">
+            <QrCode className="w-8 h-8" />
+          </div>
+          <h3 className="text-2xl font-black text-primary uppercase tracking-tight">Convite Digital</h3>
+          <p className="text-slate-500 text-sm mt-1">Apresente este código na portaria</p>
+        </div>
+
+        <div className="bg-slate-50 p-8 rounded-[2rem] border-2 border-dashed border-slate-200 mb-8 flex justify-center">
+          <div className="bg-white p-4 rounded-2xl shadow-sm ring-1 ring-slate-100">
+            <QRCodeSVG 
+              value={JSON.stringify({
+                visitorId: visitor.id,
+                name: visitor.name,
+                condoId: visitor.condoId,
+                validUntil: visitor.validUntil,
+                type: visitor.type
+              })}
+              size={200}
+              level="H"
+              includeMargin={true}
+            />
+          </div>
+        </div>
+
+        <div className="text-left bg-slate-50 p-6 rounded-2xl border border-slate-100">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Visitante Autorizado</p>
+          <p className="font-bold text-primary text-lg">{visitor.name}</p>
+          <div className="flex flex-col gap-2 mt-4">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-[10px] font-black uppercase tracking-wider">
+                {visitor.type === 'VISITOR' ? 'Visitante' : visitor.type === 'SERVICE' ? 'Prestador' : 'Delivery'}
+              </span>
+              {visitor.status === 'AUTHORIZED' && (
+                <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-[10px] font-black uppercase tracking-wider">
+                  Autorizado
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-1">
+              <Clock className="w-3 h-3" /> Válido até {new Date(visitor.validUntil).toLocaleString('pt-BR')}
+            </p>
+          </div>
+        </div>
+        
+        <div className="mt-8 pt-6 border-t border-slate-50">
+          <p className="text-[10px] text-slate-300 font-black uppercase tracking-[0.3em]">CondoPro • Segurança Digital</p>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -356,6 +478,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [infractions, setInfractions] = useState<Infraction[]>([]);
   const [minutes, setMinutes] = useState<Minute[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [cameras, setCameras] = useState<CameraStream[]>([]);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCamsLoading, setIsCamsLoading] = useState(false);
+  const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings'>('monitoring');
   const [newMessage, setNewMessage] = useState('');
   const [typingUsers, setTypingUsers] = useState<{[key: string]: { name: string, lastUpdate: number }}>({});
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
@@ -563,9 +689,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
 
   const handleShareVisitor = (visitor: any) => {
     const typeLabel = visitor.type === 'VISITOR' ? 'Visitante' : visitor.type === 'SERVICE' ? 'Prestador de Serviço' : 'Delivery';
+    const visitorLink = `${window.location.origin}?v=${visitor.id}&c=${visitor.condoId || user.condoId}`;
+    
     const text = `*Convite Digital - ${condo?.name || 'Condomínio'}*\n\n` +
       `Olá, *${visitor.name}*!\n` +
-      `Sua entrada foi autorizada. Apresente os dados abaixo na portaria:\n\n` +
+      `Sua entrada foi autorizada. Apresente o QR Code no link abaixo na portaria ao chegar:\n\n` +
+      `🔗 *Acesse seu QR Code:* ${visitorLink}\n\n` +
       `📅 *Validade:* ${new Date(visitor.validUntil).toLocaleString('pt-BR')}\n` +
       `🔑 *Tipo:* ${typeLabel}\n` +
       `📍 *Unidade:* ${residents.find(r => r.email === user.email)?.unit || 'N/A'}\n\n` +
@@ -1133,6 +1262,33 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     }
   };
 
+  useEffect(() => {
+    if (activeMenu === 'cameras') {
+      loadCameras();
+    }
+  }, [activeMenu]);
+
+  const loadCameras = async () => {
+    setIsCamsLoading(true);
+    setCameraError(null);
+    try {
+      const data = await cameraService.getCameras();
+      setCameras(data);
+    } catch (err: any) {
+      setCameraError(err.message || "Erro desconhecido ao carregar câmeras.");
+    } finally {
+      setIsCamsLoading(false);
+    }
+  };
+
+  const handlePTZ = async (cameraId: string, action: CameraAction['action']) => {
+    try {
+      await cameraService.executePTZ({ cameraId, action });
+    } catch (err) {
+      console.error("PTZ Action failed", err);
+    }
+  };
+
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'announcements', label: 'Comunicados', icon: Megaphone },
@@ -1309,14 +1465,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         </header>
 
         {/* Content Area */}
-        <div className="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-10">
+        <div className="flex-grow overflow-y-auto p-4 sm:p-8 lg:p-12">
           <AnimatePresence mode="wait">
             {activeMenu === 'overview' && (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }} 
                 animate={{ opacity: 1, y: 0 }} 
                 exit={{ opacity: 0, y: -20 }} 
-                className="space-y-6 lg:space-y-10"
+                className="space-y-8 lg:space-y-14"
               >
                 {/* Condo Score Section */}
                 {user.role === 'CONDO_ADMIN' && condoScore && (
@@ -1440,27 +1596,29 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
                   {[
                     { label: 'Total Moradores', value: '742', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+12 este mês' },
                     { label: 'Ocorrências', value: '08', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '3 urgentes' },
                     { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Salão ocupado' },
                     { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-0.5% vs mês ant.' },
                   ].map((stat, i) => (
-                    <div key={i} className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-200/60 hover:shadow-md transition-all group">
-                      <div className={`${stat.bg} ${stat.color} w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-4 sm:mb-6 group-hover:scale-110 transition-transform`}>
-                        <stat.icon className="w-6 h-6 sm:w-7 sm:h-7" />
+                    <div key={i} className={`bg-white p-8 sm:p-10 rounded-[2.5rem] shadow-sm border border-slate-200/60 hover:shadow-xl transition-all group ${i === 3 ? 'lg:col-span-3' : ''}`}>
+                      <div className={`${stat.bg} ${stat.color} w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-6 sm:mb-8 group-hover:rotate-6 transition-transform`}>
+                        <stat.icon className="w-7 h-7 sm:w-8 sm:h-8" />
                       </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 sm:mb-2">{stat.label}</p>
-                      <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-1 sm:mb-2">{stat.value}</h3>
-                      <p className={`text-[10px] font-bold ${stat.color}`}>{stat.trend}</p>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 sm:mb-3">{stat.label}</p>
+                      <h3 className="text-3xl sm:text-4xl font-black text-slate-800 mb-2 sm:mb-4">{stat.value}</h3>
+                      <p className={`text-xs font-bold ${stat.color} flex items-center gap-2`}>
+                        <TrendingUp className="w-4 h-4" /> {stat.trend}
+                      </p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-14">
                   {/* Recent Activity */}
-                  <div className="lg:col-span-2 bg-white rounded-3xl lg:rounded-[2.5rem] p-6 sm:p-10 shadow-sm border border-slate-200/60">
+                  <div className="lg:col-span-2 bg-white rounded-3xl lg:rounded-[2.5rem] p-8 sm:p-12 shadow-sm border border-slate-200/60">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 sm:mb-10">
                       <div>
                         <h3 className="text-xl sm:text-2xl font-headline font-extrabold text-slate-800">Últimas Ocorrências</h3>
@@ -1495,9 +1653,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   </div>
 
                   {/* Quick Actions */}
-                  <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200/60">
+                  <div className="bg-white rounded-[2.5rem] p-8 sm:p-12 shadow-sm border border-slate-200/60">
                     <h3 className="text-2xl font-headline font-extrabold text-slate-800 mb-10">Ações Rápidas</h3>
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-8">
                       {[
                         { label: 'Novo Morador', icon: UserPlus, color: 'bg-blue-50 text-blue-600', action: () => { setActiveMenu('residents'); setShowAddResidentModal(true); } },
                         { label: 'Comunicado', icon: MessageSquare, color: 'bg-purple-50 text-purple-600', action: () => setActiveMenu('announcements') },
@@ -1825,47 +1983,140 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
 
             {activeMenu === 'cameras' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div>
                     <h3 className="text-3xl font-black text-slate-800">Câmeras em Tempo Real</h3>
                     <p className="text-slate-500">Monitoramento integrado (Intelbras / Hikvision).</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold">Mosaico</button>
-                    <button className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold">Gravações</button>
+                  <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                    <button 
+                      onClick={() => setCameraViewTab('monitoring')}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${cameraViewTab === 'monitoring' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      Monitoramento
+                    </button>
+                    <button 
+                      onClick={() => setCameraViewTab('settings')}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${cameraViewTab === 'settings' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      Configurações
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {[
-                    { name: 'Entrada Principal', status: 'Online', lastEvent: 'Movimento detectado há 2 min' },
-                    { name: 'Garagem G1', status: 'Online', lastEvent: 'Sem eventos recentes' },
-                    { name: 'Piscina', status: 'Online', lastEvent: 'Movimento detectado há 15 min' },
-                    { name: 'Hall Elevadores', status: 'Online', lastEvent: 'Sem eventos recentes' },
-                  ].map((cam, i) => (
-                    <div key={i} className="bg-slate-900 rounded-[2.5rem] overflow-hidden relative group aspect-video">
-                      <img 
-                        src={`https://picsum.photos/seed/cam${i}/800/450?blur=2`} 
-                        alt={cam.name} 
-                        className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white group-hover:scale-110 transition-transform cursor-pointer">
-                          <Activity className="w-8 h-8 animate-pulse" />
+                {cameraViewTab === 'monitoring' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {cameraError ? (
+                    <div className="col-span-full bg-red-50 border border-red-100 p-8 rounded-3xl text-center">
+                      <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-4" />
+                      <p className="text-red-600 font-bold">{cameraError}</p>
+                      <button 
+                        onClick={loadCameras}
+                        className="mt-4 bg-red-600 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg shadow-red-600/20"
+                      >
+                        Tentar Novamente
+                      </button>
+                    </div>
+                  ) : isCamsLoading ? (
+                    [1, 2, 3, 4].map((i) => (
+                      <div key={i} className="bg-slate-100 rounded-[2.5rem] aspect-video animate-pulse" />
+                    ))
+                  ) : (
+                    cameras.map((cam) => (
+                      <div key={cam.id} className="bg-slate-900 rounded-[2.5rem] overflow-hidden relative group aspect-video">
+                        <img 
+                          src={cam.url} 
+                          alt={cam.name} 
+                          className={`w-full h-full object-cover transition-opacity ${cam.status === 'ONLINE' ? 'opacity-60 group-hover:opacity-80' : 'opacity-20 backdrop-grayscale'}`}
+                          referrerPolicy="no-referrer"
+                        />
+                        
+                        {cam.status === 'ONLINE' && (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="grid grid-cols-3 gap-2 bg-black/40 backdrop-blur-md p-4 rounded-3xl">
+                              <div />
+                              <button onClick={() => handlePTZ(cam.id, 'PTZ_UP')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowUp className="w-5 h-5" /></button>
+                              <div />
+                              <button onClick={() => handlePTZ(cam.id, 'PTZ_LEFT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowLeft className="w-5 h-5" /></button>
+                              <div className="w-5 h-5" />
+                              <button onClick={() => handlePTZ(cam.id, 'PTZ_RIGHT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowRight className="w-5 h-5" /></button>
+                              <button onClick={() => handlePTZ(cam.id, 'ZOOM_IN')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-bold"><ZoomIn className="w-5 h-5" /></button>
+                              <button onClick={() => handlePTZ(cam.id, 'PTZ_DOWN')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowDown className="w-5 h-5" /></button>
+                              <button onClick={() => handlePTZ(cam.id, 'ZOOM_OUT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-bold"><ZoomOut className="w-5 h-5" /></button>
+                            </div>
+                          </div>
+                        )}
+
+                        {cam.status !== 'ONLINE' && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
+                            <Camera className="w-12 h-12 mb-2" />
+                            <span className="text-xs font-bold uppercase tracking-widest">{cam.status === 'OFFLINE' ? 'Conexão Perdida' : 'Erro na API'}</span>
+                          </div>
+                        )}
+
+                        <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">
+                          <div className={`w-2 h-2 rounded-full ${cam.status === 'ONLINE' ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`} />
+                          <span className="text-[10px] font-black text-white uppercase tracking-widest">{cam.status === 'ONLINE' ? 'LIVE' : cam.status}</span>
+                        </div>
+                        
+                        <div className="absolute top-6 right-6 flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full">
+                          <span className="text-[8px] font-bold text-white/60 tracking-wider font-mono">{cam.model}</span>
+                        </div>
+
+                        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+                          <h4 className="text-white font-bold">{cam.name}</h4>
+                          <p className={`text-xs ${cam.status === 'ONLINE' ? 'text-white/60' : 'text-red-400'}`}>{cam.lastEvent}</p>
                         </div>
                       </div>
-                      <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">
-                        <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                        <span className="text-[10px] font-black text-white uppercase tracking-widest">LIVE</span>
+                    ))
+                  )}
+                </div>) : (
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                          <Database className="w-4 h-4 text-blue-600" /> Integração com DVR/NVR
+                        </h4>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400">Endereço IP / Host</label>
+                            <input type="text" placeholder="192.168.1.100" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-400">Porta HTTP</label>
+                              <input type="number" placeholder="80" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-400">Porta RTSP</label>
+                              <input type="number" placeholder="554" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
-                        <h4 className="text-white font-bold">{cam.name}</h4>
-                        <p className="text-white/60 text-xs">{cam.lastEvent}</p>
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                          <Key className="w-4 h-4 text-blue-600" /> Credenciais de Acesso
+                        </h4>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400">Usuário</label>
+                            <input type="text" placeholder="admin" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400">Senha</label>
+                            <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm" />
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="pt-8 border-t border-slate-100">
+                      <button className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                        <Check className="w-5 h-5" /> Salvar Configurações
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -3795,24 +4046,33 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </div>
               <div className="p-8 space-y-4">
                 {visitorSuccess ? (
-                  <div className="flex flex-col items-center text-center space-y-6 py-4">
-                    <motion.div 
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-green-500"
-                    >
-                      <CheckCircle2 className="w-12 h-12" />
-                    </motion.div>
+                  <div className="flex flex-col items-center text-center space-y-4 py-2">
+                    <div className="bg-slate-50 p-4 rounded-[2rem] border-2 border-dashed border-slate-200 flex justify-center">
+                      <div className="bg-white p-3 rounded-2xl shadow-sm ring-1 ring-slate-100">
+                        <QRCodeSVG 
+                          value={JSON.stringify({
+                            visitorId: visitorSuccess.id,
+                            name: visitorSuccess.name,
+                            condoId: visitorSuccess.condoId,
+                            validUntil: visitorSuccess.validUntil,
+                            type: visitorSuccess.type
+                          })}
+                          size={160}
+                          level="H"
+                          includeMargin={true}
+                        />
+                      </div>
+                    </div>
                     <div>
                       <h4 className="text-xl font-bold text-primary">Autorização Concluída!</h4>
-                      <p className="text-sm text-gray-500 mt-2">O visitante {visitorSuccess.name} agora está autorizado.</p>
+                      <p className="text-sm text-slate-500 mt-1">O convite para {visitorSuccess.name} está pronto.</p>
                     </div>
-                    <div className="w-full space-y-3 pt-4">
+                    <div className="w-full space-y-3 pt-2">
                       <button 
                         onClick={() => handleShareVisitor(visitorSuccess)}
                         className="w-full py-4 bg-green-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition-all shadow-lg shadow-green-500/20"
                       >
-                        <Share2 className="w-5 h-5" /> Compartilhar Convite
+                        <Share2 className="w-5 h-5" /> Compartilhar no WhatsApp
                       </button>
                       <button 
                         onClick={() => {
@@ -4078,6 +4338,14 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<AppUser | null>(null);
   const [managedCondoId, setManagedCondoId] = useState<string | null>(null);
+  const [condoForPackages, setCondoForPackages] = useState<Condo | null>(null);
+  const [condoPackages, setCondoPackages] = useState<Package[]>([]);
+  const [showAddPackageModal, setShowAddPackageModal] = useState(false);
+  const [newPackage, setNewPackage] = useState({ 
+    residentId: '', 
+    description: '', 
+    carrier: '' 
+  });
   const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
   const [profileData, setProfileData] = useState({
@@ -4127,6 +4395,61 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       unsubAuditLogs();
     };
   }, [user.role]);
+
+  useEffect(() => {
+    if (!condoForPackages) return;
+
+    const packagesRef = collection(db, 'condos', condoForPackages.id, 'packages');
+    const unsubPackages = onSnapshot(packagesRef, (snap) => {
+      setCondoPackages(snap.docs.map(d => ({ id: d.id, ...d.data() } as Package)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${condoForPackages.id}/packages`));
+
+    return () => unsubPackages();
+  }, [condoForPackages]);
+
+  const handleCreatePackage = async () => {
+    if (!condoForPackages || !newPackage.residentId || !newPackage.description) {
+      alert("Preencha todos os campos.");
+      return;
+    }
+
+    try {
+      const resident = allUsers.find(u => u.id === newPackage.residentId);
+      const pkgRef = doc(collection(db, 'condos', condoForPackages.id, 'packages'));
+      const pkgData: Package = {
+        id: pkgRef.id,
+        condoId: condoForPackages.id,
+        residentId: newPackage.residentId,
+        residentName: resident?.name || 'Morador Desconhecido',
+        unit: 'Externo',
+        description: newPackage.description,
+        carrier: newPackage.carrier,
+        status: 'PENDING',
+        receivedAt: new Date().toISOString()
+      };
+
+      await setDoc(pkgRef, pkgData);
+      await createAuditLog('Registrou nova encomenda (Super Admin)', 'CONDO', pkgRef.id, `Condo: ${condoForPackages.name}, Destinatário: ${pkgData.residentName}`, condoForPackages.id);
+      setShowAddPackageModal(false);
+      setNewPackage({ residentId: '', description: '', carrier: '' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${condoForPackages.id}/packages`);
+    }
+  };
+
+  const handleUpdatePackageStatus = async (pkgId: string, status: Package['status']) => {
+    if (!condoForPackages) return;
+    try {
+      const pkgRef = doc(db, 'condos', condoForPackages.id, 'packages', pkgId);
+      await setDoc(pkgRef, { 
+        status,
+        deliveredAt: status === 'DELIVERED' ? new Date().toISOString() : undefined
+      }, { merge: true });
+      await createAuditLog('Alterou status de encomenda (Super Admin)', 'CONDO', pkgId, `Novo Status: ${status}`, condoForPackages.id);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `condos/${condoForPackages.id}/packages/${pkgId}`);
+    }
+  };
 
   const handleAddCondo = async () => {
     if (!newCondo.name || !newCondo.city || !newCondo.slug) {
@@ -4494,6 +4817,66 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
               </motion.div>
             )}
 
+            {activeMenu === 'audit' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: -10 }} 
+                className="space-y-6"
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-800 tracking-tight">Trilha de Auditoria Global</h3>
+                    <p className="text-sm text-slate-500 mt-1">Monitoramento de todas as ações administrativas do SaaS.</p>
+                  </div>
+                </div>
+                
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                          <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ação</th>
+                          <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Usuário</th>
+                          <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Recurso</th>
+                          <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data / Hora</th>
+                          <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Detalhes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {auditLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-8 py-5">
+                              <span className="font-bold text-slate-800 text-sm">{log.action}</span>
+                            </td>
+                            <td className="px-8 py-5">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-[10px]">
+                                  {log.userName.substring(0, 2).toUpperCase()}
+                                </div>
+                                <span className="text-sm font-medium text-slate-600">{log.userName}</span>
+                              </div>
+                            </td>
+                            <td className="px-8 py-5">
+                              <span className="text-[10px] font-black uppercase px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg">
+                                {log.resourceType}
+                              </span>
+                            </td>
+                            <td className="px-8 py-5 text-xs text-slate-500 font-medium">
+                              {new Date(log.timestamp).toLocaleString('pt-BR')}
+                            </td>
+                            <td className="px-8 py-5 text-xs text-slate-400">
+                              {log.details || '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'condos' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -4563,6 +4946,14 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                               >
                                 <LayoutDashboard className="w-3 h-3 group-hover:scale-110 transition-transform" />
                                 Gerenciar
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setCondoForPackages(c)}
+                                className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
+                              >
+                                <PackageIcon className="w-3 h-3 group-hover:scale-110 transition-transform" />
+                                Encomendas
                               </button>
                               <button 
                                 type="button"
@@ -4983,6 +5374,174 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                   className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
                 >
                   Criar Condomínio
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Package Management Modal */}
+      <AnimatePresence>
+        {condoForPackages && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setCondoForPackages(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Gerenciar Encomendas</h3>
+                  <p className="text-sm text-slate-500">{condoForPackages.name}</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setShowAddPackageModal(true)}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Nova Encomenda
+                  </button>
+                  <button onClick={() => setCondoForPackages(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-grow overflow-y-auto p-8 space-y-6">
+                {condoPackages.length === 0 ? (
+                  <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
+                    <PackageIcon className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                    <p className="text-slate-500 font-medium">Nenhuma encomenda registrada neste condomínio.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {condoPackages.map((pkg) => (
+                      <div key={pkg.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-blue-200 transition-all group">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                              <PackageIcon className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-800">{pkg.residentName}</p>
+                              <p className="text-xs text-slate-500">Unidade {pkg.unit}</p>
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
+                            pkg.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
+                            pkg.status === 'DELIVERED' ? 'bg-green-100 text-green-600' :
+                            'bg-red-100 text-red-600'
+                          }`}>
+                            {pkg.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-4 line-clamp-2">{pkg.description}</p>
+                        <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                          <div className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(pkg.receivedAt).toLocaleDateString()}
+                          </div>
+                          <div className="flex gap-2">
+                            {pkg.status === 'PENDING' && (
+                              <>
+                                <button 
+                                  onClick={() => handleUpdatePackageStatus(pkg.id, 'DELIVERED')}
+                                  className="text-[10px] font-black uppercase px-3 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-all"
+                                >
+                                  Entregar
+                                </button>
+                                <button 
+                                  onClick={() => handleUpdatePackageStatus(pkg.id, 'RETURNED')}
+                                  className="text-[10px] font-black uppercase px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                                >
+                                  Devolver
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Package Modal (Sub-modal) */}
+      <AnimatePresence>
+        {showAddPackageModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddPackageModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Encomenda</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Destinatário</label>
+                  <select 
+                    value={newPackage.residentId}
+                    onChange={(e) => setNewPackage({...newPackage, residentId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Selecionar Morador</option>
+                    {allUsers.filter(u => u.condoId === condoForPackages?.id && u.role === 'RESIDENT').map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição / Conteúdo</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.description}
+                    onChange={(e) => setNewPackage({...newPackage, description: e.target.value})}
+                    placeholder="Ex: Caixa média da Amazon" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Transportadora</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.carrier}
+                    onChange={(e) => setNewPackage({...newPackage, carrier: e.target.value})}
+                    placeholder="Ex: Loggi, Sedex..." 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <button 
+                  onClick={handleCreatePackage}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Registrar Encomenda
+                </button>
+                <button 
+                  onClick={() => setShowAddPackageModal(false)}
+                  className="w-full py-4 text-slate-400 font-bold hover:text-slate-600"
+                >
+                  Cancelar
                 </button>
               </div>
             </motion.div>
@@ -5717,15 +6276,23 @@ export default function App() {
 
   return (
     <div className="font-sans text-primary">
-      {user ? (
-        user.role === 'SUPER_ADMIN' ? (
-          <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
+      {(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const visitorId = urlParams.get('v');
+        if (visitorId) {
+          return <PublicVisitorCard visitorId={visitorId} />;
+        }
+        
+        return user ? (
+          user.role === 'SUPER_ADMIN' ? (
+            <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
+          ) : (
+            <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
+          )
         ) : (
-          <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
-        )
-      ) : (
-        <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />
-      )}
+          <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />
+        );
+      })()}
 
       {user && <AIAssistant condoRules={CONDO_RULES} />}
 
