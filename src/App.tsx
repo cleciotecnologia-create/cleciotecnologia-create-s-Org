@@ -1379,28 +1379,37 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   };
 
   const menuItems = [
-    { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'announcements', label: 'Comunicados', icon: Megaphone },
-    { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare },
-    { id: 'cameras', label: 'Monitoramento', icon: Activity, premiumOnly: true },
-    { id: 'assemblies', label: 'Assembleias', icon: Gavel },
-    { id: 'minutes', label: 'Atas e Documentos', icon: FileText },
-    { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true },
-    { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle },
-    { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true },
-    { id: 'reservations', label: 'Reservas', icon: Calendar },
-    { id: 'concierge', label: 'Portaria Remota', icon: Shield },
-    { id: 'packages', label: 'Encomendas', icon: PackageIcon },
-    { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true },
-    { id: 'ranking', label: 'Ranking & Prêmios', icon: Award },
-    { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
-    { id: 'finance', label: 'Financeiro', icon: DollarSign },
-    { id: 'gas', label: 'Consumo de Gás', icon: Zap },
-    { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
-    { id: 'risk', label: 'Previsão de Risco', icon: TrendingUp, adminOnly: true },
-    { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true },
-    { id: 'audit', label: 'Auditoria', icon: History, adminOnly: true },
-    { id: 'settings', label: 'Configurações', icon: Settings, adminOnly: true },
+    { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard, category: 'main' },
+    { id: 'announcements', label: 'Comunicados', icon: Megaphone, category: 'communication' },
+    { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare, category: 'communication' },
+    { id: 'cameras', label: 'Monitoramento', icon: Activity, premiumOnly: true, category: 'safety' },
+    { id: 'assemblies', label: 'Assembleias', icon: Gavel, category: 'communication' },
+    { id: 'minutes', label: 'Atas e Documentos', icon: FileText, category: 'communication' },
+    { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true, category: 'management' },
+    { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle, category: 'communication' },
+    { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true, category: 'management' },
+    { id: 'reservations', label: 'Reservas', icon: Calendar, category: 'community' },
+    { id: 'concierge', label: 'Portaria Remota', icon: Shield, category: 'safety' },
+    { id: 'packages', label: 'Encomendas', icon: PackageIcon, category: 'management' },
+    { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true, category: 'management' },
+    { id: 'ranking', label: 'Ranking & Prêmios', icon: Award, category: 'community' },
+    { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag, category: 'community' },
+    { id: 'finance', label: 'Financeiro', icon: DollarSign, category: 'management' },
+    { id: 'gas', label: 'Consumo de Gás', icon: Zap, category: 'management' },
+    { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true, category: 'admin' },
+    { id: 'risk', label: 'Previsão de Risco', icon: TrendingUp, adminOnly: true, category: 'admin' },
+    { id: 'subscription', label: 'Assinatura', icon: CreditCard, adminOnly: true, category: 'admin' },
+    { id: 'audit', label: 'Auditoria', icon: History, adminOnly: true, category: 'admin' },
+    { id: 'settings', label: 'Configurações', icon: Settings, adminOnly: true, category: 'admin' },
+  ];
+
+  const categories = [
+    { id: 'main', label: 'Início' },
+    { id: 'communication', label: 'Comunicação' },
+    { id: 'community', label: 'Comunidade' },
+    { id: 'management', label: 'Gestão' },
+    { id: 'safety', label: 'Segurança' },
+    { id: 'admin', label: 'Administrativo' },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {
@@ -1464,41 +1473,55 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           <Logo collapsed={!isSidebarOpen} light />
         </div>
         
-        <nav className="flex-grow p-4 space-y-1 mt-4 overflow-y-auto custom-scrollbar">
-          {filteredMenuItems.map((item) => {
-            const hasNotification = (item.id === 'maintenance' && maintenanceTasks.some(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7)))) ||
-                                   (item.id === 'risk' && residentRisks.some(r => r.riskLevel === 'HIGH'));
-            
+        <nav className="flex-grow p-4 space-y-6 mt-4 overflow-y-auto custom-scrollbar">
+          {categories.map((cat) => {
+            const catItems = filteredMenuItems.filter(i => i.category === cat.id);
+            if (catItems.length === 0) return null;
+
             return (
-              <button
-                key={item.id}
-                onClick={() => setActiveMenu(item.id)}
-                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all relative group focus:outline-none ${
-                  activeMenu === item.id 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <item.icon className={`w-6 h-6 flex-shrink-0 transition-transform group-hover:scale-110 ${activeMenu === item.id ? 'text-white' : 'text-slate-500'}`} />
+              <div key={cat.id} className="space-y-1">
                 {isSidebarOpen && (
-                  <motion.span 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="font-bold text-sm"
-                  >
-                    {item.label}
-                  </motion.span>
+                  <h4 className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 opacity-50">
+                    {cat.label}
+                  </h4>
                 )}
-                {hasNotification && (
-                  <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full border border-slate-900 animate-pulse" />
-                )}
-                {activeMenu === item.id && (
-                  <motion.div 
-                    layoutId="active-pill"
-                    className="absolute left-0 w-1.5 h-8 bg-white rounded-r-full shadow-[0_0_10px_rgba(255,255,255,0.5)]"
-                  />
-                )}
-              </button>
+                <div className="space-y-1">
+                  {catItems.map((item) => {
+                    const hasNotification = (item.id === 'maintenance' && maintenanceTasks.some(t => t.status !== 'COMPLETED' && isBefore(parseISO(t.nextDueDate), addDays(new Date(), 7)))) ||
+                                           (item.id === 'risk' && residentRisks.some(r => r.riskLevel === 'HIGH'));
+                    
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveMenu(item.id)}
+                        className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all relative group focus:outline-none ${
+                          activeMenu === item.id 
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <item.icon className={`w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110 ${activeMenu === item.id ? 'text-white' : 'text-slate-500'}`} />
+                        {isSidebarOpen && (
+                          <motion.span 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="font-bold text-xs"
+                          >
+                            {item.label}
+                          </motion.span>
+                        )}
+                        {hasNotification && (
+                          <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-slate-900 animate-pulse" />
+                        )}
+                        {activeMenu === item.id && !isSidebarOpen && (
+                          <div className="absolute right-0 w-1 h-4 bg-blue-500 rounded-l-full" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!isSidebarOpen && <div className="h-px bg-white/5 mx-4 my-2" />}
+              </div>
             );
           })}
         </nav>
@@ -5077,14 +5100,21 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   };
 
   const menuItems = [
-    { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard },
-    { id: 'condos', label: 'Condomínios', icon: Building2 },
-    { id: 'users', label: 'Usuários', icon: Users },
-    { id: 'plans', label: 'Planos & SaaS', icon: CreditCard },
-    { id: 'audit', label: 'Auditoria', icon: History },
-    { id: 'settings', label: 'Configurações', icon: Settings },
-    { id: 'profile', label: 'Meu Perfil', icon: UserIcon },
-    { id: 'support', label: 'Suporte SaaS', icon: MessageSquare },
+    { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard, category: 'main' },
+    { id: 'condos', label: 'Condomínios', icon: Building2, category: 'management' },
+    { id: 'users', label: 'Usuários', icon: Users, category: 'management' },
+    { id: 'plans', label: 'Planos & SaaS', icon: CreditCard, category: 'business' },
+    { id: 'audit', label: 'Auditoria Global', icon: History, category: 'main' },
+    { id: 'settings', label: 'Configurações', icon: Settings, category: 'config' },
+    { id: 'profile', label: 'Meu Perfil', icon: UserIcon, category: 'config' },
+    { id: 'support', label: 'Suporte SaaS', icon: MessageSquare, category: 'main' },
+  ];
+
+  const categories = [
+    { id: 'main', label: 'Monitoramento' },
+    { id: 'management', label: 'Gestão Geral' },
+    { id: 'business', label: 'Negócios' },
+    { id: 'config', label: 'Preferências' },
   ];
 
   const stats = [
@@ -5150,17 +5180,40 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         <div className={`p-6 border-b border-white/5`}>
           <Logo collapsed={!isSidebarOpen} light />
         </div>
-        <nav className="flex-grow p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveMenu(item.id)}
-              className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all focus:outline-none ${activeMenu === item.id ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
-            >
-              <item.icon className="w-6 h-6 flex-shrink-0" />
-              {isSidebarOpen && <span className="font-medium">{item.label}</span>}
-            </button>
-          ))}
+        <nav className="flex-grow p-4 space-y-6 overflow-y-auto custom-scrollbar">
+          {categories.map((cat) => {
+            const catItems = menuItems.filter(i => i.category === cat.id);
+            if (catItems.length === 0) return null;
+
+            return (
+              <div key={cat.id} className="space-y-1">
+                {isSidebarOpen && (
+                  <h4 className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 opacity-50">
+                    {cat.label}
+                  </h4>
+                )}
+                <div className="space-y-1">
+                  {catItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveMenu(item.id)}
+                      className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all focus:outline-none relative group ${
+                        activeMenu === item.id 
+                          ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' 
+                          : 'text-white/40 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <item.icon className="w-5 h-5 flex-shrink-0" />
+                      {isSidebarOpen && <span className="font-bold text-xs">{item.label}</span>}
+                      {activeMenu === item.id && !isSidebarOpen && (
+                        <div className="absolute right-0 w-1 h-4 bg-orange-500 rounded-l-full" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </nav>
         <div className="p-4 border-t border-white/5">
           <button onClick={onLogout} className="w-full flex items-center gap-4 p-3 rounded-xl text-white/40 hover:text-red-400 transition-all">
