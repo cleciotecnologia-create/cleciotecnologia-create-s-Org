@@ -53,6 +53,8 @@ export interface Resident {
   points?: number;
   level?: number;
   badges?: string[];
+  acceptedTerms?: boolean;
+  acceptedTermsAt?: string;
 }
 
 export interface Occurrence {
@@ -111,10 +113,53 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
-  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE';
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG';
   resourceId?: string;
   details?: string;
   timestamp: string;
+}
+
+export interface MovingRequest {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  unit: string;
+  type: 'IN' | 'OUT';
+  date: string;
+  startTime: string;
+  endTime: string;
+  carModel: string;
+  carPlate: string;
+  driverName: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'COMPLETED';
+  observations?: string;
+  qrCode?: string;
+  createdAt: string;
+  approvedAt?: string;
+}
+
+export interface ParkingSlot {
+  id: string;
+  condoId: string;
+  number: string;
+  type: 'RESIDENT' | 'VISITOR';
+  status: 'AVAILABLE' | 'OCCUPIED' | 'MAINTENANCE';
+  residentId?: string; 
+  residentName?: string;
+  visitorId?: string;
+  reservedUntil?: string;
+}
+
+export interface AccessTag {
+  id: string;
+  condoId: string;
+  residentId: string;
+  residentName: string;
+  carPlate: string;
+  tagId: string; // The physical TAG identifier
+  status: 'ACTIVE' | 'INACTIVE';
+  createdAt: string;
 }
 
 export interface Announcement {

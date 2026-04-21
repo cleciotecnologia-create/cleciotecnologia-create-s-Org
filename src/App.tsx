@@ -9,10 +9,12 @@ import {
   Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
-  Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database, RefreshCw
+  Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database, RefreshCw, Save,
+  Truck, Tag, Car
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
+import { jsPDF } from 'jspdf';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   BarChart, 
@@ -36,7 +38,7 @@ import {
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
   Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading,
-  Infraction, Minute
+  Infraction, Minute, MovingRequest, ParkingSlot, AccessTag
 } from './types';
 import { auth, db } from './firebase';
 import { cameraService, CameraStream, CameraAction } from './services/cameraService';
@@ -452,6 +454,7 @@ const PublicVisitorCard = ({ visitorId }: { visitorId: string }) => {
 
 const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
   const [activeMenu, setActiveMenu] = useState('overview');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'CARD'>('PIX');
@@ -492,6 +495,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [newMessage, setNewMessage] = useState('');
   const [typingUsers, setTypingUsers] = useState<{[key: string]: { name: string, lastUpdate: number }}>({});
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
+  const [showEditResidentModal, setShowEditResidentModal] = useState(false);
+  const [selectedResidentForEdit, setSelectedResidentForEdit] = useState<Resident | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [newResident, setNewResident] = useState({ 
     name: '', 
@@ -517,6 +522,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [showAddOccurrenceModal, setShowAddOccurrenceModal] = useState(false);
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
   const [showAddAnnouncementModal, setShowAddAnnouncementModal] = useState(false);
+  const [showAddPackageModal, setShowAddPackageModal] = useState(false);
+  const [newPackage, setNewPackage] = useState({ 
+    residentId: '', 
+    description: '', 
+    carrier: '' 
+  });
   const [financeFilter, setFinanceFilter] = useState<'ALL' | 'PAID' | 'PENDING' | 'OVERDUE'>('ALL');
   const [newInvoice, setNewInvoice] = useState<Partial<Invoice>>({
     amount: 0,
@@ -536,6 +547,50 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     description: '',
     category: 'OTHER' as Occurrence['category']
   });
+
+  const [movingRequests, setMovingRequests] = useState<MovingRequest[]>([]);
+  const [parkingSlots, setParkingSlots] = useState<ParkingSlot[]>([]);
+  const [accessTags, setAccessTags] = useState<AccessTag[]>([]);
+  const [showMovingModal, setShowMovingModal] = useState(false);
+  const [newMovingRequest, setNewMovingRequest] = useState<Partial<MovingRequest>>({
+    type: 'IN',
+    carModel: '',
+    carPlate: '',
+    driverName: '',
+    date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    startTime: '08:00',
+    endTime: '18:00'
+  });
+  const [showParkingModal, setShowParkingModal] = useState(false);
+  const [newParkingSlot, setNewParkingSlot] = useState<Partial<ParkingSlot>>({
+    number: '',
+    type: 'VISITOR',
+    status: 'AVAILABLE'
+  });
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [newAccessTag, setNewAccessTag] = useState<Partial<AccessTag>>({
+    residentId: '',
+    carPlate: '',
+    tagId: '',
+    status: 'ACTIVE'
+  });
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [movingConfig, setMovingConfig] = useState({
+    allowedDays: ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'],
+    allowedDaysEnglish: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    startTime: '08:00',
+    endTime: '18:00'
+  });
+
+  useEffect(() => {
+    if (user && user.role === 'RESIDENT') {
+      const resident = residents.find(r => r.id === user.id);
+      if (resident && !resident.acceptedTerms) {
+        setShowTermsModal(true);
+      }
+    }
+  }, [user, residents]);
 
   const handleSendEmail = async (to: string, subject: string, body: string) => {
     try {
@@ -969,6 +1024,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/infractions`));
 
+    const movingRef = collection(db, 'condos', user.condoId, 'movingRequests');
+    const unsubMoving = onSnapshot(movingRef, (snap) => {
+      setMovingRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as MovingRequest)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/movingRequests`));
+
+    const parkingSlotsRef = collection(db, 'condos', user.condoId, 'parkingSlots');
+    const unsubParking = onSnapshot(parkingSlotsRef, (snap) => {
+      setParkingSlots(snap.docs.map(d => ({ id: d.id, ...d.data() } as ParkingSlot)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/parkingSlots`));
+
+    const accessTagsRef = collection(db, 'condos', user.condoId, 'accessTags');
+    const unsubTags = onSnapshot(accessTagsRef, (snap) => {
+      setAccessTags(snap.docs.map(d => ({ id: d.id, ...d.data() } as AccessTag)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/accessTags`));
+
     const minutesRef = collection(db, 'condos', user.condoId, 'minutes');
     const unsubMinutes = onSnapshot(minutesRef, (snap) => {
       if (snap.empty) {
@@ -1050,6 +1120,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubGas();
       unsubInfractions();
       unsubMinutes();
+      unsubMoving();
+      unsubParking();
+      unsubTags();
     };
   }, [user.condoId, user.id, user.name]);
 
@@ -1127,6 +1200,23 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     }
   };
 
+  const handleUpdateResident = async () => {
+    if (!user.condoId || !selectedResidentForEdit) return;
+    setIsLoading(true);
+    try {
+      const residentRef = doc(db, 'condos', user.condoId, 'residents', selectedResidentForEdit.id);
+      await setDoc(residentRef, selectedResidentForEdit, { merge: true });
+      createAuditLog('Atualizou dados de morador', 'RESIDENT', selectedResidentForEdit.id, `Morador: ${selectedResidentForEdit.name}`);
+      setShowEditResidentModal(false);
+      setSelectedResidentForEdit(null);
+      alert('Morador atualizado com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/residents/${selectedResidentForEdit.id}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleAddVisitor = async () => {
     if (!newVisitor.name || !newVisitor.validUntil || !user.condoId) {
       alert("Por favor, preencha todos os campos.");
@@ -1178,6 +1268,50 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       handleAddPoints(user.id, 5, 'Participação no chat');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/messages`);
+    }
+  };
+
+  const handleConfirmDelivery = async (pkgId: string) => {
+    if (!condo?.id) return;
+    try {
+      const pkgRef = doc(db, 'condos', condo.id, 'packages', pkgId);
+      await setDoc(pkgRef, { status: 'DELIVERED', deliveredAt: new Date().toISOString() }, { merge: true });
+      await createAuditLog('Confirmou entrega de encomenda', 'CONDO', pkgId, `Status: DELIVERED`);
+      alert('Entrega confirmada com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${condo?.id}/packages/${pkgId}`);
+    }
+  };
+
+  const handleCreatePackage = async () => {
+    if (!newPackage.residentId || !newPackage.description || !newPackage.carrier || !condo?.id) {
+      alert("Todos os campos são obrigatórios.");
+      return;
+    }
+    try {
+      const packagesRef = collection(db, 'condos', condo.id, 'packages');
+      const pkgRef = doc(packagesRef);
+      const pkgResident = residents.find(r => r.id === newPackage.residentId);
+      
+      const pkgData: Package = {
+        id: pkgRef.id,
+        condoId: condo.id,
+        residentId: newPackage.residentId,
+        residentName: pkgResident?.name || 'Morador',
+        unit: pkgResident?.unit || '?',
+        description: newPackage.description,
+        carrier: newPackage.carrier,
+        status: 'PENDING',
+        receivedAt: new Date().toISOString()
+      };
+
+      await setDoc(pkgRef, pkgData);
+      await createAuditLog('Registrou nova encomenda', 'CONDO', pkgRef.id, `Para: ${pkgData.residentName}`);
+      setShowAddPackageModal(false);
+      setNewPackage({ residentId: '', description: '', carrier: '' });
+      alert('Encomenda registrada com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `condos/${condo?.id}/packages`);
     }
   };
 
@@ -1236,6 +1370,48 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/invoices/${invoiceId}`);
     }
+  };
+
+  const handleGenerateDebtClearanceCertificate = () => {
+    const overdueInvoices = invoices.filter(inv => inv.status === 'OVERDUE');
+
+    if (overdueInvoices.length > 0) {
+      alert("Certidão Negada: Você possui débitos pendentes. Por favor, procure a administração do condomínio.");
+      return;
+    }
+
+    const jsDoc = new jsPDF();
+    const now = new Date();
+    const dateStr = format(now, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+    
+    jsDoc.setFillColor(30, 41, 59);
+    jsDoc.rect(0, 0, 210, 40, 'F');
+    jsDoc.setTextColor(255, 255, 255);
+    jsDoc.setFontSize(22);
+    jsDoc.text('CERTIDÃO NEGATIVA DE DÉBITOS', 105, 25, { align: 'center' });
+    
+    jsDoc.setTextColor(0, 0, 0);
+    jsDoc.setFontSize(14);
+    jsDoc.setFont("helvetica", "bold");
+    jsDoc.text('DECLARAÇÃO DE QUITAÇÃO', 105, 60, { align: 'center' });
+    
+    jsDoc.setFontSize(12);
+    jsDoc.setFont("helvetica", "normal");
+    const resident = residents.find(r => r.id === user.id);
+    const content = `Declaramos para os devidos fins que o condômino ${user.name}, residente na unidade ${resident?.unit || 'N/A'}, do Condomínio ${condo?.name || 'Gestão Pro'}, encontra-se, até a presente data, em dia com suas obrigações condominiais ordinárias e extraordinárias.\n\nNão constam em nossos registros quaisquer débitos pendentes de pagamento vinculados à unidade acima descrita até esta data.`;
+    
+    const splitContent = jsDoc.splitTextToSize(content, 170);
+    jsDoc.text(splitContent, 20, 80);
+    
+    jsDoc.setFontSize(10);
+    jsDoc.text(`Emitido em: ${dateStr}`, 105, 140, { align: 'center' });
+    jsDoc.text(`Código de Autenticidade: ${Math.random().toString(36).substring(2, 15).toUpperCase()}`, 105, 150, { align: 'center' });
+    
+    jsDoc.line(60, 200, 150, 200);
+    jsDoc.text('Administração do Condomínio', 105, 210, { align: 'center' });
+    
+    jsDoc.save(`Certidao_Quitacao_${user.name.replace(/\s+/g, '_')}.pdf`);
+    createAuditLog('Gerou certidão de quitação de débitos', 'PAYMENT');
   };
 
   const handleCreateInvoice = async () => {
@@ -1340,6 +1516,162 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     }
   };
 
+  const handleAcceptTerms = async () => {
+    if (!user.id || !user.condoId) return;
+    try {
+      const residentRef = doc(db, 'condos', user.condoId, 'residents', user.id);
+      await setDoc(residentRef, {
+        acceptedTerms: true,
+        acceptedTermsAt: new Date().toISOString()
+      }, { merge: true });
+      setAcceptedTerms(true);
+      setShowTermsModal(false);
+      createAuditLog('Aceitou termos de convivência', 'CONDO');
+      alert('Termos aceitos com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/residents/${user.id}`);
+    }
+  };
+
+  const handleCreateMovingRequest = async () => {
+    if (!user.condoId || !newMovingRequest.date || !newMovingRequest.carPlate) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    const movingDate = new Date(newMovingRequest.date);
+    const dayOfWeek = format(movingDate, 'EEEE', { locale: ptBR });
+    const dayOfWeekEnglish = format(movingDate, 'EEEE');
+    if (!movingConfig.allowedDaysEnglish.includes(dayOfWeekEnglish)) {
+      alert(`Mudanças não são permitidas em: ${dayOfWeek}`);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const movingRef = collection(db, 'condos', user.condoId, 'movingRequests');
+      const docRef = await addDoc(movingRef, {
+        ...newMovingRequest,
+        residentId: user.id,
+        residentName: user.name,
+        unit: residents.find(r => r.id === user.id)?.unit || 'N/A',
+        status: 'PENDING',
+        createdAt: new Date().toISOString()
+      });
+      setShowMovingModal(false);
+      setNewMovingRequest({
+        type: 'IN',
+        carModel: '',
+        carPlate: '',
+        driverName: '',
+        date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+        startTime: '08:00',
+        endTime: '18:00'
+      });
+      createAuditLog('Solicitou mudança', 'MOVING', docRef.id);
+      alert('Solicitação de mudança enviada para aprovação do síndico!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/movingRequests`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleApproveMovingRequest = async (requestId: string, status: 'APPROVED' | 'DENIED') => {
+    if (!user.condoId) return;
+    try {
+      const requestRef = doc(db, 'condos', user.condoId, 'movingRequests', requestId);
+      await setDoc(requestRef, { status, approvedBy: user.name }, { merge: true });
+      createAuditLog(`${status === 'APPROVED' ? 'Aprovou' : 'Negou'} mudança`, 'MOVING', requestId);
+      alert(`Solicitação ${status === 'APPROVED' ? 'aprovada' : 'negada'} com sucesso!`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/movingRequests/${requestId}`);
+    }
+  };
+
+  const handleGenerateMovingAuthorizationPDF = (request: MovingRequest) => {
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.text('Autorização de Mudança', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(12);
+    doc.text(`Condomínio: ${condo?.name || 'Gestão Pro'}`, 20, 40);
+    doc.text(`Morador: ${request.residentName}`, 20, 50);
+    doc.text(`Unidade: ${request.unit}`, 20, 60);
+    doc.text(`Tipo: ${request.type === 'IN' ? 'Entrada (Move-in)' : 'Saída (Move-out)'}`, 20, 70);
+    doc.text(`Data: ${format(parseISO(request.date), 'dd/MM/yyyy')}`, 20, 80);
+    doc.text(`Horário: ${request.startTime} - ${request.endTime}`, 20, 90);
+    
+    doc.text('Dados do Veículo:', 20, 110);
+    doc.text(`Motorista: ${request.driverName}`, 30, 120);
+    doc.text(`Modelo: ${request.carModel}`, 30, 130);
+    doc.text(`Placa: ${request.carPlate}`, 30, 140);
+
+    doc.text('Apresente o QR Code na portaria:', 20, 160);
+    doc.rect(75, 170, 60, 60);
+    doc.text('QR CODE DE VALIDAÇÃO', 105, 205, { align: 'center' });
+
+    doc.save(`Autorizacao_Mudanca_${request.carPlate}.pdf`);
+  };
+
+  const handleShareMovingWhatsApp = (request: MovingRequest) => {
+    const message = `Olá! Segue autorização de mudança para o Condomínio ${condo?.name}.%0A%0AMorador: ${request.residentName}%0AUnidade: ${request.unit}%0AData: ${format(parseISO(request.date), 'dd/MM/yyyy')}%0AVeículo: ${request.carModel} (${request.carPlate})%0AMotorista: ${request.driverName}`;
+    window.open(`https://wa.me/?text=${message}`, '_blank');
+  };
+
+  const handleCreateParkingSlot = async () => {
+    if (!user.condoId || !newParkingSlot.number) {
+      alert("O número da vaga é obrigatório.");
+      return;
+    }
+    try {
+      const parkingRef = collection(db, 'condos', user.condoId, 'parkingSlots');
+      const docRef = await addDoc(parkingRef, {
+        ...newParkingSlot,
+        createdAt: new Date().toISOString()
+      });
+      setShowParkingModal(false);
+      setNewParkingSlot({ number: '', type: 'VISITOR', status: 'AVAILABLE' });
+      createAuditLog('Cadastrou vaga de garagem', 'PARKING', docRef.id);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/parkingSlots`);
+    }
+  };
+
+  const handleAssignParkingSlot = async (slotId: string, residentId: string | null, visitorId: string | null) => {
+    if (!user.condoId) return;
+    try {
+      const slotRef = doc(db, 'condos', user.condoId, 'parkingSlots', slotId);
+      await setDoc(slotRef, {
+        residentId,
+        visitorId,
+        status: (residentId || visitorId) ? 'OCCUPIED' : 'AVAILABLE'
+      }, { merge: true });
+      createAuditLog('Atualizou ocupação de vaga', 'PARKING', slotId);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/parkingSlots/${slotId}`);
+    }
+  };
+
+  const handleCreateAccessTag = async () => {
+    if (!user.condoId || !newAccessTag.tagId || !newAccessTag.residentId) {
+      alert("Tag ID e Morador são obrigatórios.");
+      return;
+    }
+    try {
+      const tagsRef = collection(db, 'condos', user.condoId, 'accessTags');
+      const docRef = await addDoc(tagsRef, {
+        ...newAccessTag,
+        createdAt: new Date().toISOString()
+      });
+      setShowTagModal(false);
+      setNewAccessTag({ residentId: '', carPlate: '', tagId: '', status: 'ACTIVE' });
+      createAuditLog('Vinculou nova tag de acesso', 'TAG', docRef.id);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/accessTags`);
+    }
+  };
+
   const handleAssignOccurrence = async (occurrenceId: string, assignedTo: string) => {
     if (!user.condoId) return;
     try {
@@ -1389,7 +1721,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle, category: 'communication' },
     { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true, category: 'management' },
     { id: 'reservations', label: 'Reservas', icon: Calendar, category: 'community' },
+    { id: 'moving', label: 'Mudanças', icon: Truck, category: 'management' },
+    { id: 'parking', label: 'Vagas de Garagem', icon: Car, category: 'management' },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield, category: 'safety' },
+    { id: 'tags', label: 'Tags de Acesso', icon: Tag, category: 'safety' },
     { id: 'packages', label: 'Encomendas', icon: PackageIcon, category: 'management' },
     { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true, category: 'management' },
     { id: 'ranking', label: 'Ranking & Prêmios', icon: Award, category: 'community' },
@@ -1475,7 +1810,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         
         <nav className="flex-grow p-4 space-y-6 mt-4 overflow-y-auto custom-scrollbar">
           {categories.map((cat) => {
-            const catItems = filteredMenuItems.filter(i => i.category === cat.id);
+            const catItems = filteredMenuItems.filter(i => 
+              i.category === cat.id && 
+              (searchTerm === '' || i.label.toLowerCase().includes(searchTerm.toLowerCase()))
+            );
             if (catItems.length === 0) return null;
 
             return (
@@ -1541,23 +1879,42 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-              className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-500"
+              className="p-2.5 hover:bg-slate-100 active:scale-95 rounded-xl transition-all text-slate-500"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="hidden md:flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl w-64 lg:w-80 border border-slate-200/50">
+            <div className="hidden md:flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl w-64 lg:w-96 border border-slate-200/50 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
               <Search className="w-4 h-4 text-slate-400" />
-              <input type="text" placeholder="Buscar no sistema..." className="bg-transparent border-none focus:outline-none text-sm w-full text-slate-600" />
+              <input 
+                type="text" 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar no sistema..." 
+                className="bg-transparent border-none focus:outline-none text-sm w-full text-slate-600" 
+              />
+              {searchTerm && (
+                <button onClick={() => setSearchTerm('')} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
           
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-2">
-              <button className="p-2.5 hover:bg-slate-100 rounded-xl relative transition-colors group">
+              <button 
+                onClick={() => setActiveMenu('announcements')}
+                className="p-2.5 hover:bg-slate-100 rounded-xl relative transition-colors group"
+                title="Notificações"
+              >
                 <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-600 transition-colors" />
                 <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
-              <button className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors group">
+              <button 
+                onClick={() => setActiveMenu('settings')}
+                className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors group"
+                title="Configurações"
+              >
                 <Settings className="w-5 h-5 text-slate-500 group-hover:text-slate-800 transition-colors" />
               </button>
             </div>
@@ -1695,12 +2052,36 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       Tudo parece em ordem por aqui hoje.
                     </p>
                     <div className="flex flex-wrap gap-3 sm:gap-4">
-                      <button className="bg-blue-600 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 text-sm sm:text-base">
-                        Novo Comunicado
-                      </button>
-                      <button className="bg-white/10 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10 text-sm sm:text-base">
-                        Ver Relatórios
-                      </button>
+                      {user.role !== 'RESIDENT' && (
+                        <button 
+                          onClick={() => {
+                            console.log("Triggering: Novo Comunicado");
+                            setShowAddAnnouncementModal(true);
+                          }}
+                          className="bg-blue-600 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-600/20 text-sm sm:text-base cursor-pointer z-10"
+                        >
+                          Novo Comunicado
+                        </button>
+                      )}
+                      {user.role !== 'RESIDENT' && (
+                        <button 
+                          onClick={() => {
+                            console.log("Navigating to: Reports");
+                            setActiveMenu('reports');
+                          }}
+                          className="bg-white/10 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-white/20 active:scale-95 transition-all border border-white/10 text-sm sm:text-base cursor-pointer z-10"
+                        >
+                          Ver Relatórios
+                        </button>
+                      )}
+                      {user.role === 'RESIDENT' && (
+                        <button 
+                          onClick={() => setActiveMenu('occurrences')}
+                          className="bg-blue-600 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 text-sm sm:text-base cursor-pointer"
+                        >
+                          Registrar Ocorrência
+                        </button>
+                      )}
                     </div>
                   </div>
                   <Sparkles className="absolute -right-10 -top-10 w-48 sm:w-64 h-48 sm:h-64 text-white/5 rotate-12" />
@@ -1708,15 +2089,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
                   {[
-                    { label: 'Total Moradores', value: '742', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+12 este mês' },
-                    { label: 'Ocorrências', value: '08', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '3 urgentes' },
-                    { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Salão ocupado' },
-                    { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-0.5% vs mês ant.' },
+                    { label: 'Total Moradores', value: '742', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+12 este mês', action: () => setActiveMenu('residents') },
+                    { label: 'Ocorrências', value: '08', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '3 urgentes', action: () => setActiveMenu('occurrences') },
+                    { label: 'Reservas Hoje', value: '12', icon: Calendar, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Salão ocupado', action: () => setActiveMenu('reservations') },
+                    { label: 'Inadimplência', value: '4.2%', icon: BarChart3, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-0.5% vs mês ant.', action: () => setActiveMenu('finance') },
                   ].map((stat, i) => (
-                    <div key={i} className={`bg-white p-8 sm:p-10 rounded-[2.5rem] shadow-sm border border-slate-200/60 hover:shadow-xl transition-all group ${i === 3 ? 'lg:col-span-3' : ''}`}>
-                      <div className={`${stat.bg} ${stat.color} w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-6 sm:mb-8 group-hover:rotate-6 transition-transform`}>
+                    <button 
+                      key={i} 
+                      onClick={stat.action}
+                      className="bg-white p-8 sm:p-10 rounded-[2.5rem] shadow-sm border border-slate-200/60 hover:shadow-xl hover:scale-[1.02] transition-all group text-left w-full focus:outline-none"
+                    >
+                      <div className={`${stat.bg} ${stat.color} w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-6 sm:mb-8 group-hover:rotate-6 transition-transform shadow-sm`}>
                         <stat.icon className="w-7 h-7 sm:w-8 sm:h-8" />
                       </div>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 sm:mb-3">{stat.label}</p>
@@ -1724,7 +2109,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       <p className={`text-xs font-bold ${stat.color} flex items-center gap-2`}>
                         <TrendingUp className="w-4 h-4" /> {stat.trend}
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -1745,7 +2130,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     </div>
                     <div className="space-y-4 sm:space-y-6">
                       {MOCK_OCCURRENCES.map((occ) => (
-                        <div key={occ.id} className="flex items-center gap-4 sm:gap-6 p-4 sm:p-6 rounded-2xl sm:rounded-3xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group">
+                        <div 
+                          key={occ.id} 
+                          onClick={() => setActiveMenu('occurrences')}
+                          className="flex items-center gap-4 sm:gap-6 p-4 sm:p-6 rounded-2xl sm:rounded-3xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group cursor-pointer"
+                        >
                           <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0 ${occ.status === 'OPEN' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
                             <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />
                           </div>
@@ -1866,7 +2255,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             </div>
                           </td>
                           <td className="px-8 py-4">
-                            <button className="text-primary hover:underline text-sm font-bold">Editar</button>
+                            <button 
+                              onClick={() => {
+                                setSelectedResidentForEdit(res);
+                                setShowEditResidentModal(true);
+                              }}
+                              className="text-primary hover:underline text-sm font-bold"
+                            >
+                              Editar
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -1883,8 +2280,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <h3 className="text-3xl font-black text-slate-800">Assembleias Digitais</h3>
                     <p className="text-slate-500">Participe das decisões do seu condomínio com validade jurídica.</p>
                   </div>
-                  {user.role === 'CONDO_ADMIN' && (
-                    <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                  {user.role !== 'RESIDENT' && (
+                    <button 
+                      onClick={() => alert("Funcionalidade de Nova Assembleia será implementada em breve.")}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                    >
                       <Plus className="w-5 h-5" /> Nova Assembleia
                     </button>
                   )}
@@ -1974,7 +2374,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             ))}
                           </div>
                         </div>
-                        <div className="md:w-64 space-y-6">
+                  <div className="md:w-64 space-y-6">
                           <div className="p-6 bg-slate-900 rounded-3xl text-white">
                             <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-4">Resumo Legal</p>
                             <div className="space-y-4">
@@ -1992,7 +2392,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                               </div>
                             </div>
                           </div>
-                          <button className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => alert("O download do edital estará disponível após o processamento digital.")}
+                            className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors"
+                          >
                             <FileText className="w-4 h-4" /> Baixar Edital
                           </button>
                         </div>
@@ -2010,7 +2413,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <h3 className="text-3xl font-black text-slate-800">Manutenção Preventiva</h3>
                     <p className="text-slate-500">Agenda e histórico de equipamentos críticos.</p>
                   </div>
-                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                  <button 
+                    onClick={() => alert("Novo agendamento de manutenção será implementado em breve.")}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                  >
                     <Plus className="w-5 h-5" /> Agendar Manutenção
                   </button>
                 </div>
@@ -2333,7 +2739,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <h3 className="text-3xl font-black text-slate-800">Marketplace Interno</h3>
                     <p className="text-slate-500">Serviços e produtos de moradores para moradores.</p>
                   </div>
-                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                  <button 
+                    onClick={() => alert("O marketplace de moradores será ativado em breve pelo síndico.")}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                  >
                     <Plus className="w-5 h-5" /> Anunciar
                   </button>
                 </div>
@@ -3005,7 +3414,27 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   </div>
                 </div>
 
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row items-center gap-8 text-white">
+                  <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row items-center gap-8 text-white">
+                    <div className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                      <div className="w-48 h-48 bg-blue-500/20 rounded-2xl flex items-center justify-center border-2 border-dashed border-blue-500/30 relative overflow-hidden">
+                        <Tag className="w-20 h-20 text-blue-400 animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="flex-grow text-center md:text-left">
+                      <h4 className="text-2xl font-black mb-4">Acesso Automático por Tag</h4>
+                      <p className="text-slate-400 mb-6 max-w-md">
+                        Liberação automática de portão para veículos cadastrados. Nossa tecnologia RFID permite que você entre no condomínio sem precisar baixar o vidro.
+                      </p>
+                      <button 
+                        onClick={() => setActiveMenu('tags')}
+                        className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2"
+                      >
+                        <Settings className="w-5 h-5" /> Configurar Tags
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row items-center gap-8 text-white">
                   <div className="bg-white/5 p-6 rounded-3xl border border-white/10">
                     <div className="w-48 h-48 bg-blue-500/20 rounded-2xl flex items-center justify-center border-2 border-dashed border-blue-500/30 relative overflow-hidden">
                       <Shield className="w-20 h-20 text-blue-400 animate-pulse" />
@@ -3115,7 +3544,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-slate-800">Controle de Encomendas</h3>
                   {user.role !== 'RESIDENT' && (
-                    <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                    <button 
+                      onClick={() => setShowAddPackageModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                    >
                       <Plus className="w-5 h-5" /> Registrar Encomenda
                     </button>
                   )}
@@ -3162,7 +3594,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             </td>
                             <td className="px-8 py-6">
                               {pkg.status === 'PENDING' && user.role !== 'RESIDENT' && (
-                                <button className="text-blue-600 font-bold text-sm hover:underline">Confirmar Entrega</button>
+                                <button 
+                                  onClick={() => handleConfirmDelivery(pkg.id)}
+                                  className="text-blue-600 font-bold text-sm hover:underline active:scale-95 transition-all"
+                                >
+                                  Confirmar Entrega
+                                </button>
                               )}
                               {pkg.status === 'PENDING' && user.role === 'RESIDENT' && (
                                 <button 
@@ -3178,6 +3615,277 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       )}
                     </tbody>
                   </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'moving' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-primary">Mudanças</h3>
+                  <button 
+                    onClick={() => setShowMovingModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
+                    <Plus className="w-5 h-5" /> Agendar Mudança
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {movingRequests.length === 0 ? (
+                    <div className="bg-white p-20 rounded-[2.5rem] text-center border border-slate-200/60">
+                      <Truck className="w-16 h-16 mx-auto mb-4 text-slate-200" />
+                      <p className="text-slate-400 font-bold">Nenhuma solicitação de mudança.</p>
+                    </div>
+                  ) : (
+                    movingRequests.map((req) => (
+                      <div key={req.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div className="flex items-center gap-4">
+                          <div className={`p-4 rounded-2xl ${req.type === 'IN' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                            <Truck className="w-8 h-8" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-black text-primary text-xl">{req.residentName}</p>
+                              <span className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest ${
+                                req.status === 'APPROVED' ? 'bg-green-100 text-green-600' :
+                                req.status === 'DENIED' ? 'bg-red-100 text-red-600' :
+                                'bg-orange-100 text-orange-600'
+                              }`}>
+                                {req.status === 'APPROVED' ? 'Aprovado' : req.status === 'DENIED' ? 'Negado' : 'Pendente'}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-500">
+                              {req.unit} • {format(parseISO(req.date), 'dd/MM/yyyy')} ({req.startTime} - {req.endTime})
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Veículo: {req.carModel} ({req.carPlate}) • Motorista: {req.driverName}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                          {user.role !== 'RESIDENT' && req.status === 'PENDING' && (
+                            <>
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    await setDoc(doc(db, 'condos', user.condoId!, 'movingRequests', req.id), { status: 'APPROVED', approvedAt: new Date().toISOString() }, { merge: true });
+                                    createAuditLog('Aprovou mudança', 'MOVING', req.id);
+                                  } catch (err) { alert('Erro ao aprovar'); }
+                                }}
+                                className="flex-1 md:flex-none px-4 py-2 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition-all text-sm"
+                              >
+                                Aprovar
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    await setDoc(doc(db, 'condos', user.condoId!, 'movingRequests', req.id), { status: 'DENIED' }, { merge: true });
+                                    createAuditLog('Negou mudança', 'MOVING', req.id);
+                                  } catch (err) { alert('Erro ao negar'); }
+                                }}
+                                className="flex-1 md:flex-none px-4 py-2 bg-red-50 text-red-500 rounded-xl font-bold hover:bg-red-100 transition-all text-sm"
+                              >
+                                Negar
+                              </button>
+                            </>
+                          )}
+                          {req.status === 'APPROVED' && (
+                            <>
+                              <button 
+                                onClick={() => handleGenerateMovingAuthorizationPDF(req)}
+                                className="flex-1 md:flex-none px-4 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all text-sm flex items-center justify-center gap-2"
+                              >
+                                <Download className="w-4 h-4" /> PDF
+                              </button>
+                              <button 
+                                onClick={() => handleShareMovingWhatsApp(req)}
+                                className="flex-1 md:flex-none px-4 py-2 bg-green-100 text-green-600 rounded-xl font-bold hover:bg-green-200 transition-all text-sm flex items-center justify-center gap-2"
+                              >
+                                <Share2 className="w-4 h-4" /> WhatsApp
+                              </button>
+                            </>
+                          )}
+                          <button 
+                            onClick={async () => {
+                              if (window.confirm("Deseja remover esta solicitação?")) {
+                                try {
+                                  await deleteDoc(doc(db, 'condos', user.condoId!, 'movingRequests', req.id));
+                                  createAuditLog('Removeu solicitação de mudança', 'MOVING', req.id);
+                                } catch (err) { alert('Erro ao remover'); }
+                              }
+                            }}
+                            className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'parking' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-primary">Vagas de Garagem</h3>
+                  <button 
+                    onClick={() => setShowParkingModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
+                    <Plus className="w-5 h-5" /> Cadastrar Vaga
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {parkingSlots.map((slot) => (
+                    <div 
+                      key={slot.id} 
+                      className={`p-6 rounded-3xl border transition-all flex flex-col items-center justify-center gap-3 relative overflow-hidden group ${
+                        slot.status === 'AVAILABLE' ? 'bg-white border-gray-100 hover:border-blue-200' :
+                        slot.status === 'OCCUPIED' ? 'bg-blue-50 border-blue-100' :
+                        'bg-gray-50 border-gray-200 opacity-60'
+                      }`}
+                    >
+                      <Car className={`w-8 h-8 ${slot.status === 'AVAILABLE' ? 'text-gray-300' : 'text-blue-500'}`} />
+                      <div className="text-center">
+                        <p className="font-black text-primary text-xl">Vaga {slot.number}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{slot.type}</p>
+                      </div>
+                      <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase tracking-widest ${
+                        slot.status === 'AVAILABLE' ? 'bg-green-100 text-green-600' :
+                        slot.status === 'OCCUPIED' ? 'bg-blue-100 text-blue-600' :
+                        'bg-gray-200 text-gray-600'
+                      }`}>
+                        {slot.status === 'AVAILABLE' ? 'Livre' : 'Ocupada'}
+                      </span>
+                      
+                      {slot.status === 'AVAILABLE' && slot.type === 'VISITOR' && (
+                        <button 
+                          onClick={() => {
+                            const name = prompt("Nome do Visitante/Motorista:");
+                            if (name) handleAssignParkingSlot(slot.id, null, name);
+                          }}
+                          className="text-[10px] font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg transition-all"
+                        >
+                          Ocupar Vaga
+                        </button>
+                      )}
+                      
+                      {slot.status === 'OCCUPIED' && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] text-center text-blue-600 font-bold mt-2">
+                             {slot.residentName || slot.visitorId || 'Ocupado'}
+                          </div>
+                          <button 
+                            onClick={() => handleAssignParkingSlot(slot.id, null, null)}
+                            className="text-[10px] font-bold text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg transition-all mx-auto block"
+                          >
+                            Liberar
+                          </button>
+                        </div>
+                      )}
+
+                      {user.role !== 'RESIDENT' && (
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm("Deseja remover esta vaga?")) {
+                              await deleteDoc(doc(db, 'condos', user.condoId!, 'parkingSlots', slot.id));
+                            }
+                          }}
+                          className="absolute top-2 right-2 p-1 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {parkingSlots.length === 0 && (
+                    <div className="col-span-full py-20 text-center bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-200">
+                      <Car className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-gray-400 font-bold">Nenhuma vaga cadastrada.</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'tags' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-primary">Tags de Acesso Automático</h3>
+                  <button 
+                    onClick={() => setShowTagModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
+                    <Plus className="w-5 h-5" /> Vincular Tag
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {accessTags.map((tag) => (
+                    <div key={tag.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-50 p-4 rounded-2xl text-blue-600">
+                          <Tag className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="font-black text-primary text-lg">{tag.residentName}</p>
+                          <p className="text-xs text-gray-500 uppercase tracking-widest font-black">{tag.tagId}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-4 border-t border-gray-50">
+                        <div className="flex items-center gap-2">
+                          <Car className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm font-bold text-gray-600">{tag.carPlate}</span>
+                        </div>
+                        <span className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest ${
+                          tag.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                        }`}>
+                          {tag.status === 'ACTIVE' ? 'Ativo' : 'Bloqueado'}
+                        </span>
+                      </div>
+                      
+                      <button 
+                        onClick={async () => {
+                          if (window.confirm("Deseja desvincular esta tag?")) {
+                            await deleteDoc(doc(db, 'condos', user.condoId!, 'accessTags', tag.id));
+                          }
+                        }}
+                        className="absolute top-4 right-4 p-2 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {accessTags.length === 0 && (
+                    <div className="col-span-full py-20 text-center bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-200">
+                      <Tag className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-gray-400 font-bold">Nenhuma tag vinculada.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-blue-600 p-8 rounded-[2.5rem] shadow-xl shadow-blue-600/20 text-white flex flex-col md:flex-row items-center gap-8 mt-12">
+                  <div className="bg-white/10 p-6 rounded-3xl border border-white/10 shrink-0">
+                    <RefreshCw className="w-12 h-12 text-white animate-spin-slow" />
+                  </div>
+                  <div>
+                    <h4 className="text-2xl font-black mb-2">Abertura Automática por Antena</h4>
+                    <p className="text-blue-100 leading-relaxed max-w-lg mb-6">
+                      Ao aproximar seu veículo da entrada, nossa antena lerá sua Tag e o portão se abrirá automaticamente em até 3 segundos. Segurança e praticidade para seu dia a dia.
+                    </p>
+                    <div className="flex gap-4">
+                      <div className="flex items-center gap-2 text-xs font-bold bg-white/10 px-3 py-1.5 rounded-full">
+                        <CheckCircle2 className="w-4 h-4" /> 100% Criptografado
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-bold bg-white/10 px-3 py-1.5 rounded-full">
+                        <CheckCircle2 className="w-4 h-4" /> Anti-clonagem
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -3613,8 +4321,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     </div>
 
                     <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                      <div className="p-8 border-b border-slate-100">
+                      <div className="p-8 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <h3 className="text-lg font-bold text-slate-800">Meus Boletos</h3>
+                        <button 
+                          onClick={handleGenerateDebtClearanceCertificate}
+                          className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex items-center gap-2"
+                        >
+                          <FileText className="w-4 h-4" /> Certidão de Quitação
+                        </button>
                       </div>
                       <div className="divide-y divide-slate-100">
                         {invoices.length === 0 ? (
@@ -3890,7 +4604,251 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         </div>
       </main>
 
-      {/* Add Resident Modal */}
+      {/* Add Package Modal */}
+      <AnimatePresence>
+        {showAddPackageModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddPackageModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Nova Encomenda</h3>
+                <button onClick={() => setShowAddPackageModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Destinatário</label>
+                  <select 
+                    value={newPackage.residentId}
+                    onChange={(e) => setNewPackage({...newPackage, residentId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Selecionar Morador</option>
+                    {residents.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} (Apto {r.unit})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição / Conteúdo</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.description}
+                    onChange={(e) => setNewPackage({...newPackage, description: e.target.value})}
+                    placeholder="Ex: Caixa média da Amazon" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Transportadora</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.carrier}
+                    onChange={(e) => setNewPackage({...newPackage, carrier: e.target.value})}
+                    placeholder="Ex: Loggi, Sedex..." 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <button 
+                  onClick={handleCreatePackage}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
+                >
+                  Registrar Encomenda
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Package Modal */}
+      <AnimatePresence>
+        {showAddPackageModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAddPackageModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Nova Encomenda</h3>
+                <button onClick={() => setShowAddPackageModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Destinatário</label>
+                  <select 
+                    value={newPackage.residentId}
+                    onChange={(e) => setNewPackage({...newPackage, residentId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Selecionar Morador</option>
+                    {residents.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} (Apto {r.unit})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição / Conteúdo</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.description}
+                    onChange={(e) => setNewPackage({...newPackage, description: e.target.value})}
+                    placeholder="Ex: Caixa média da Amazon" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Transportadora</label>
+                  <input 
+                    type="text" 
+                    value={newPackage.carrier}
+                    onChange={(e) => setNewPackage({...newPackage, carrier: e.target.value})}
+                    placeholder="Ex: Loggi, Sedex..." 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <button 
+                  onClick={handleCreatePackage}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95"
+                >
+                  Registrar Encomenda
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Resident Modal */}
+      <AnimatePresence>
+        {showEditResidentModal && selectedResidentForEdit && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEditResidentModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl relative z-10 border border-slate-200"
+            >
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">Editar Morador</h3>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Atualize as informações do cadastro</p>
+                </div>
+                <button onClick={() => setShowEditResidentModal(false)} className="p-3 hover:bg-white hover:shadow-md rounded-2xl transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar space-y-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Informações Pessoais</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input 
+                      type="text" 
+                      placeholder="Nome Completo" 
+                      value={selectedResidentForEdit.name}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, name: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                    <input 
+                      type="email" 
+                      placeholder="E-mail" 
+                      value={selectedResidentForEdit.email}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, email: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Endereço & Unidade</label>
+                  <div className="grid grid-cols-3 gap-4">
+                    <input 
+                      type="text" 
+                      placeholder="Apto/Casa" 
+                      value={selectedResidentForEdit.unit}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, unit: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all font-mono" 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Bloco" 
+                      value={selectedResidentForEdit.block || ''}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, block: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Torre" 
+                      value={selectedResidentForEdit.tower || ''}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, tower: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                   <div className="flex items-center justify-between p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                    <div>
+                      <p className="font-bold text-slate-800">Status da Conta</p>
+                      <p className="text-xs text-slate-500">Inativo bloqueia o acesso ao app.</p>
+                    </div>
+                    <select 
+                      value={selectedResidentForEdit.status}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, status: e.target.value as 'ACTIVE' | 'INACTIVE'})}
+                      className={`px-4 py-2 rounded-xl font-black text-xs uppercase border-none focus:ring-2 focus:ring-blue-600/10 ${selectedResidentForEdit.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}
+                    >
+                      <option value="ACTIVE">Ativo</option>
+                      <option value="INACTIVE">Inativo</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 border-t border-slate-100 bg-slate-50/50">
+                <button 
+                  onClick={handleUpdateResident}
+                  disabled={isLoading}
+                  className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-xl shadow-slate-200 hover:bg-blue-600 hover:shadow-blue-600/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                  {isLoading ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />}
+                  Salvar Alterações
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {showAddResidentModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
@@ -4131,6 +5089,299 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     </button>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Terms Modal */}
+      <AnimatePresence>
+        {showTermsModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 50 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 50 }}
+              className="relative bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <FileText className="w-8 h-8" />
+                  <h3 className="text-2xl font-black tracking-tight">Termo de Aceite e Regras</h3>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-10 space-y-8">
+                <div className="prose prose-slate max-w-none">
+                  <h4 className="text-xl font-bold text-slate-800">Seja bem-vindo ao {condo?.name}!</h4>
+                  <p className="text-slate-600 leading-relaxed">
+                    Para garantir a melhor convivência entre todos os moradores, é fundamental seguir as diretrizes estabelecidas no Regimento Interno. Ao utilizar esta plataforma, você concorda em cumprir todas as normas abaixo:
+                  </p>
+                  
+                  <div className="space-y-6">
+                    {CONDO_RULES.split('\n').filter(r => r.trim()).map((rule, idx) => (
+                      <div key={idx} className="flex gap-4 p-4 rounded-2xl bg-gray-50 border border-gray-100">
+                        <div className="bg-blue-600 text-white w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0 mt-1">
+                          {idx + 1}
+                        </div>
+                        <p className="text-sm font-medium text-slate-700 leading-relaxed">{rule.replace(/^\d+\.\s*/, '')}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-8 p-6 bg-orange-50 border border-orange-100 rounded-2xl">
+                    <p className="text-xs font-bold text-orange-800 uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" /> Importante
+                    </p>
+                    <p className="text-xs text-orange-900 leading-relaxed">
+                      O descumprimento das regras acima pode acarretar em advertências e multas conforme previsto no estatuto do condomínio.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 border-t border-gray-100 bg-gray-50">
+                <button 
+                  onClick={handleAcceptTerms}
+                  className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-600/20 hover:bg-blue-700 hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
+                >
+                  <CheckCircle2 className="w-6 h-6" /> Eu li e concordo com as regras
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Moving Request Modal */}
+      <AnimatePresence>
+        {showMovingModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowMovingModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-blue-600 text-white">
+                <div className="flex items-center gap-3">
+                  <Truck className="w-6 h-6" />
+                  <h3 className="text-xl font-bold">Solicitar Mudança</h3>
+                </div>
+                <button onClick={() => setShowMovingModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo de Mudança</label>
+                    <div className="flex bg-gray-50 p-1 rounded-xl gap-1">
+                      <button 
+                        onClick={() => setNewMovingRequest(prev => ({ ...prev, type: 'IN' }))}
+                        className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${newMovingRequest.type === 'IN' ? 'bg-white shadow-sm text-green-600' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        Entrada (Mudar-se para)
+                      </button>
+                      <button 
+                        onClick={() => setNewMovingRequest(prev => ({ ...prev, type: 'OUT' }))}
+                        className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${newMovingRequest.type === 'OUT' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        Saída (Sair do Condomínio)
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
+                    <input 
+                      type="date"
+                      value={newMovingRequest.date}
+                      onChange={(e) => setNewMovingRequest(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome do Motorista</label>
+                    <input 
+                      type="text"
+                      placeholder="Nome completo"
+                      value={newMovingRequest.driverName}
+                      onChange={(e) => setNewMovingRequest(prev => ({ ...prev, driverName: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Modelo do Carro</label>
+                    <input 
+                      type="text"
+                      placeholder="Ex: Mercedes Atego"
+                      value={newMovingRequest.carModel}
+                      onChange={(e) => setNewMovingRequest(prev => ({ ...prev, carModel: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Placa</label>
+                    <input 
+                      type="text"
+                      placeholder="ABC-1234"
+                      value={newMovingRequest.carPlate}
+                      onChange={(e) => setNewMovingRequest(prev => ({ ...prev, carPlate: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3 items-start">
+                  <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 leading-relaxed font-medium">
+                    Sua solicitação será enviada para análise do síndico. Após a aprovação, você poderá baixar a autorização em PDF com QR Code.
+                  </p>
+                </div>
+                <button 
+                  onClick={async () => {
+                    if (!newMovingRequest.driverName || !newMovingRequest.carPlate) return alert('Preencha os dados do motorista e veículo');
+                    try {
+                      const requestsRef = collection(db, 'condos', user.condoId!, 'movingRequests');
+                      await addDoc(requestsRef, {
+                        ...newMovingRequest,
+                        residentId: user.id,
+                        residentName: user.name,
+                        unit: residents.find(r => r.id === user.id)?.unit || 'N/A',
+                        status: 'PENDING',
+                        createdAt: new Date().toISOString()
+                      });
+                      setShowMovingModal(false);
+                      createAuditLog('Solicitou mudança', 'MOVING');
+                    } catch (err) { alert('Erro ao solicitar'); }
+                  }}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                >
+                  Confirmar Agendamento
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Parking Modal */}
+      <AnimatePresence>
+        {showParkingModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowParkingModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Cadastrar Vaga</h3>
+                <button onClick={() => setShowParkingModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Número da Vaga</label>
+                    <input 
+                      type="text"
+                      placeholder="Ex: 45A"
+                      value={newParkingSlot.number}
+                      onChange={(e) => setNewParkingSlot(prev => ({ ...prev, number: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</label>
+                    <select 
+                      value={newParkingSlot.type}
+                      onChange={(e) => setNewParkingSlot(prev => ({ ...prev, type: e.target.value as any }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="RESIDENT">Morador</option>
+                      <option value="VISITOR">Visitante</option>
+                    </select>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleCreateParkingSlot}
+                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 transition-all"
+                >
+                  Salvar Vaga
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Tag Modal */}
+      <AnimatePresence>
+        {showTagModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowTagModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800">Vincular Tag de Veículo</h3>
+                <button onClick={() => setShowTagModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Morador Responsável</label>
+                    <select 
+                      value={newAccessTag.residentId}
+                      onChange={(e) => {
+                        const res = residents.find(r => r.id === e.target.value);
+                        setNewAccessTag(prev => ({ ...prev, residentId: e.target.value, residentName: res?.name || '' }));
+                      }}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">Selecione o morador</option>
+                      {residents.map(r => (
+                        <option key={r.id} value={r.id}>{r.name} - {r.unit}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">ID da Tag (EPC Class1 Gen2)</label>
+                    <input 
+                      type="text"
+                      placeholder="Ex: E2801191..."
+                      value={newAccessTag.tagId}
+                      onChange={(e) => setNewAccessTag(prev => ({ ...prev, tagId: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Placa do Veículo</label>
+                    <input 
+                      type="text"
+                      placeholder="ABC-1234"
+                      value={newAccessTag.carPlate}
+                      onChange={(e) => setNewAccessTag(prev => ({ ...prev, carPlate: e.target.value }))}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+                <button 
+                  onClick={handleCreateAccessTag}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-5 h-5" /> Ativar Tag
+                </button>
               </div>
             </motion.div>
           </div>
@@ -6445,14 +7696,15 @@ const AIAssistant = ({ condoRules }: { condoRules: string }) => {
 
 // --- Constants ---
 const CONDO_RULES = `
-1. SILÊNCIO: Horário de silêncio das 22h às 08h. Multa de R$ 200,00 após advertência.
-2. ANIMAIS: Permitidos animais de pequeno porte, desde que no colo em áreas comuns.
-3. MUDANÇAS: Devem ser agendadas com 48h de antecedência. Apenas de segunda a sexta, das 08h às 18h.
-4. PISCINA: Uso exclusivo de moradores e convidados (limite de 2 por unidade). Proibido garrafas de vidro.
-5. LIXO: Deve ser depositado nos coletores específicos de cada andar, devidamente ensacado.
-6. VISITANTES: Devem ser autorizados via aplicativo ou interfone.
-7. VAGAS: Proibido estacionar em vaga de terceiros ou fora da demarcação.
+1. SILÊNCIO: Horário de silêncio rigoroso das 22h às 08h. Multa de R$ 200,00 após advertência.
+2. ANIMAIS: Permitidos animais de pequeno porte, desde que no colo/guia em áreas comuns. Limpeza é obrigatória.
+3. MUDANÇAS: Devem ser agendadas com 48h de antecedência via App. Apenas de segunda a sexta, das 08h às 18h.
+4. ÁREAS COMUNS: Limpeza e conservação são obrigatórias após o uso.
+5. LIXO: Deve ser depositado nos coletores específicos de cada andar, devidamente ensacado. Proibido lixo no hall.
+6. VISITANTES: Devem ser autorizados via aplicativo. O uso de QR Code é obrigatório para entrada rápida.
+7. VAGAS DE GARAGEM: Proibido estacionar em vaga de terceiros. Vagas de visitantes sujeitas a disponibilidade.
 8. REFORMAS: Apenas com ART/RRT e aprovação da administração. Horário: 09h às 17h (seg-sex).
+9. PORTARIA: O uso de Tag ou Face ID é obrigatório para moradores para garantir a segurança coletiva.
 `;
 
 export default function App() {
