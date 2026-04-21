@@ -110,15 +110,18 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'login', 'role', 'condoId', 'avatarUrl']) &&
+      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'login', 'role', 'condoId', 'avatarUrl', 'mustChangePassword', 'tempPassword', 'createdAt']) &&
              data.id is string && data.id.size() > 0 &&
-             data.email is string && isValidEmail(data.email) &&
+             (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
              (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
              data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'RESIDENT'] &&
              (!('condoId' in data) || (data.condoId is string && data.condoId.size() > 0)) &&
-             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500));
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500)) &&
+             (!('mustChangePassword' in data) || data.mustChangePassword is bool) &&
+             (!('tempPassword' in data) || (data.tempPassword is string && data.tempPassword.size() < 100)) &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
     }
 
     function isValidCondo(data) {
@@ -137,7 +140,7 @@ service cloud.firestore {
     }
 
     function isValidResident(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'block', 'tower', 'email', 'phone', 'cpf', 'login', 'status', 'isOwner', 'ownerId', 'tenantIds']) &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'unit', 'block', 'tower', 'email', 'phone', 'cpf', 'login', 'status', 'isOwner', 'ownerId', 'tenantIds', 'points', 'level', 'badges', 'acceptedTerms', 'acceptedTermsAt']) &&
              data.id is string &&
              data.condoId is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
@@ -150,7 +153,12 @@ service cloud.firestore {
              data.status in ['ACTIVE', 'INACTIVE'] &&
              (!('isOwner' in data) || data.isOwner is bool) &&
              (!('ownerId' in data) || data.ownerId is string) &&
-             (!('tenantIds' in data) || data.tenantIds is list);
+             (!('tenantIds' in data) || data.tenantIds is list) &&
+             (!('points' in data) || data.points is number) &&
+             (!('level' in data) || data.level is number) &&
+             (!('badges' in data) || data.badges is list) &&
+             (!('acceptedTerms' in data) || data.acceptedTerms is bool) &&
+             (!('acceptedTermsAt' in data) || isValidDateString(data.acceptedTermsAt));
     }
 
     function isValidOccurrence(data) {
@@ -181,10 +189,24 @@ service cloud.firestore {
              data.userId is string &&
              data.userName is string &&
              data.action is string &&
-             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE'] &&
+             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'INVOICE', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE', 'MOVING', 'PARKING', 'TAG', 'COMPLAINT', 'OTHER'] &&
              (!('resourceId' in data) || data.resourceId is string) &&
              (!('details' in data) || data.details is string) &&
              isValidDateString(data.timestamp);
+    }
+
+    function isValidComplaint(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'senderId', 'senderName', 'type', 'subject', 'description', 'isAnonymous', 'status', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             (!('senderId' in data) || data.senderId is string) &&
+             (!('senderName' in data) || data.senderName is string) &&
+             data.type in ['RESIDENT', 'EMPLOYEE', 'VISITOR', 'OTHER'] &&
+             data.subject is string && data.subject.size() > 0 &&
+             data.description is string && data.description.size() > 0 &&
+             data.isAnonymous is bool &&
+             data.status in ['PENDING', 'IN_REVIEW', 'RESOLVED'] &&
+             isValidDateString(data.createdAt);
     }
 
     function isValidPackage(data) {
@@ -425,6 +447,24 @@ service cloud.firestore {
       allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
       allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMinute(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/complaints/{complaintId} {
+      // Read: Admin or Owner (if they didn't submit anonymously? well, even if anonymous, if they have senderId they can see it in 'My Complaints')
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && (resource == null || resource.data.senderId == request.auth.uid));
+      
+      // Create: Anyone authenticated in the condo
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && 
+                      isValidComplaint(request.resource.data) &&
+                      request.resource.data.condoId == condoId &&
+                      (request.resource.data.isAnonymous == false ? request.resource.data.senderId == request.auth.uid : true);
+      
+      // Update: Only status can be updated by admins
+      allow update: if (isAdmin() || isCondoAdmin(condoId)) && 
+                      isValidComplaint(request.resource.data) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      
+      allow delete: if isAdmin();
     }
 
     match /test/{docId} {

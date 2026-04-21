@@ -9,6 +9,8 @@ export interface User {
   role: UserRole;
   condoId?: string;
   avatarUrl?: string;
+  mustChangePassword?: boolean;
+  tempPassword?: string;
   createdAt?: string;
 }
 
@@ -113,7 +115,7 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
-  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG';
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'INVOICE' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG' | 'COMPLAINT' | 'OTHER';
   resourceId?: string;
   details?: string;
   timestamp: string;
@@ -294,6 +296,30 @@ export interface GasReading {
   status: 'PENDING' | 'BILLED';
   unitPrice: number;
   totalAmount: number;
+}
+
+export interface Complaint {
+  id: string;
+  condoId: string;
+  senderId?: string; // Optional if anonymous
+  senderName?: string; // Optional if anonymous
+  type: 'RESIDENT' | 'EMPLOYEE' | 'VISITOR' | 'OTHER';
+  subject: string;
+  description: string;
+  isAnonymous: boolean;
+  status: 'PENDING' | 'IN_REVIEW' | 'RESOLVED';
+  createdAt: string;
+}
+
+export interface CashFlowEntry {
+  id: string;
+  condoId: string;
+  description: string;
+  amount: number;
+  date: string;
+  type: 'INCOME' | 'EXPENSE';
+  category: 'FIXED' | 'VARIABLE';
+  createdAt: string;
 }
 
 export const PLANS: Plan[] = [

@@ -38,7 +38,7 @@ import {
   User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
   Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading,
-  Infraction, Minute, MovingRequest, ParkingSlot, AccessTag
+  Infraction, Minute, MovingRequest, ParkingSlot, AccessTag, CashFlowEntry, Complaint
 } from './types';
 import { auth, db } from './firebase';
 import { cameraService, CameraStream, CameraAction } from './services/cameraService';
@@ -50,6 +50,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  updatePassword,
   User as FirebaseUser
 } from 'firebase/auth';
 import { 
@@ -65,7 +66,8 @@ import {
   limit,
   orderBy,
   addDoc,
-  deleteDoc
+  deleteDoc,
+  deleteField
 } from 'firebase/firestore';
 
 // --- Error Handling ---
@@ -481,6 +483,25 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [infractions, setInfractions] = useState<Infraction[]>([]);
   const [minutes, setMinutes] = useState<Minute[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [cashFlowEntries, setCashFlowEntries] = useState<CashFlowEntry[]>([]);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
+  const [showMonthlyClosingModal, setShowMonthlyClosingModal] = useState(false);
+  const [closingMonth, setClosingMonth] = useState(format(new Date(), 'MMMM/yyyy', { locale: ptBR }));
+  const [newComplaint, setNewComplaint] = useState<Partial<Complaint>>({
+    type: 'RESIDENT',
+    subject: '',
+    description: '',
+    isAnonymous: false
+  });
+  const [showCashFlowModal, setShowCashFlowModal] = useState(false);
+  const [newCashFlowEntry, setNewCashFlowEntry] = useState<Partial<CashFlowEntry>>({
+    type: 'EXPENSE',
+    category: 'FIXED',
+    amount: 0,
+    description: '',
+    date: new Date().toISOString().split('T')[0]
+  });
   const [cameras, setCameras] = useState<CameraStream[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCamsLoading, setIsCamsLoading] = useState(false);
@@ -509,7 +530,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     login: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     isOwner: false,
-    ownerId: ''
+    ownerId: '',
+    tempPassword: ''
   });
   const [newVisitor, setNewVisitor] = useState({
     name: '',
@@ -916,6 +938,24 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, `condos/${user.condoId}/stats/score`));
 
+    const cashFlowRef = collection(db, 'condos', user.condoId, 'cashFlow');
+    const unsubCashFlow = onSnapshot(cashFlowRef, (snap) => {
+      if (snap.empty) {
+        setCashFlowEntries([
+          { id: 'cf1', condoId: user.condoId!, description: 'Limpeza e Conservação', amount: 4500, date: '2024-04-01', type: 'EXPENSE', category: 'FIXED', createdAt: new Date().toISOString() },
+          { id: 'cf2', condoId: user.condoId!, description: 'Energia Elétrica', amount: 3200, date: '2024-04-05', type: 'EXPENSE', category: 'VARIABLE', createdAt: new Date().toISOString() },
+          { id: 'cf3', condoId: user.condoId!, description: 'Manutenção Elevador', amount: 1200, date: '2024-04-10', type: 'EXPENSE', category: 'FIXED', createdAt: new Date().toISOString() },
+        ]);
+      } else {
+        setCashFlowEntries(snap.docs.map(d => ({ id: d.id, ...d.data() } as CashFlowEntry)));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/cashFlow`));
+
+    const complaintsRef = collection(db, 'condos', user.condoId, 'complaints');
+    const unsubComplaints = onSnapshot(complaintsRef, (snap) => {
+      setComplaints(snap.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/complaints`));
+
     const risksRef = collection(db, 'condos', user.condoId, 'residentRisks');
     let unsubRisks = () => {};
     if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
@@ -1123,6 +1163,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       unsubMoving();
       unsubParking();
       unsubTags();
+      unsubCashFlow();
+      unsubComplaints();
     };
   }, [user.condoId, user.id, user.name]);
 
@@ -1151,8 +1193,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   }, [newMessage, user.condoId, user.id, user.name]);
 
   const handleAddResident = async () => {
-    if (!newResident.name || !newResident.email) {
-      alert("Nome e Email são obrigatórios.");
+    if (!newResident.name || (!newResident.email && !newResident.login)) {
+      alert("Nome e pelo menos um identificador (E-mail ou Login) são obrigatórios.");
       return;
     }
     setIsLoading(true);
@@ -1185,6 +1227,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         condoId: user.condoId,
         cpf: newResident.cpf,
         login: newResident.login,
+        tempPassword: newResident.tempPassword || undefined,
+        mustChangePassword: !!newResident.tempPassword,
         createdAt: new Date().toISOString()
       };
       await setDoc(userRef, userData);
@@ -1192,7 +1236,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}, Tipo: ${newResident.isOwner ? 'Proprietário' : 'Inquilino'}`);
 
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '' });
+      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/residents`);
     } finally {
@@ -1370,6 +1414,69 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/invoices/${invoiceId}`);
     }
+  };
+
+  const handleMonthlyClosing = async (baseFee: number, reserveFund: number) => {
+    if (!user.condoId) return;
+    setIsLoading(true);
+    try {
+      const activeResidents = residents.filter(r => r.status === 'ACTIVE');
+      const batchPromises = activeResidents.map(async (resident) => {
+        const gasReading = gasReadings.find(r => r.residentId === resident.id && r.billingMonth.toLowerCase() === closingMonth.toLowerCase());
+        const gasAmount = gasReading ? gasReading.totalAmount : 0;
+        
+        const invoiceItems = [
+          { description: 'Taxa Condominial', amount: baseFee },
+          { description: 'Fundo de Reserva', amount: reserveFund },
+        ];
+        
+        if (gasAmount > 0) {
+          invoiceItems.push({ description: 'Consumo de Gás', amount: gasAmount });
+        }
+
+        const totalAmount = invoiceItems.reduce((acc, item) => acc + item.amount, 0);
+        
+        const invoiceData: Partial<Invoice> = {
+          condoId: user.condoId!, // Added non-null assertion or handling
+          residentId: resident.id,
+          amount: totalAmount,
+          dueDate: format(addDays(new Date(), 10), 'yyyy-MM-dd'),
+          status: 'PENDING',
+          type: 'CONDO_FEE',
+          description: `Taxa Condominial - ${closingMonth}`,
+          items: invoiceItems
+        };
+
+        const invoiceId = `inv_${Date.now()}_${resident.id}_${Math.random().toString(36).substr(2, 5)}`;
+        await setDoc(doc(db, 'condos', user.condoId!, 'invoices', invoiceId), {
+          ...invoiceData,
+          id: invoiceId
+        });
+
+        if (resident.email) {
+          await handleSendEmail(
+            resident.email, 
+            `Boleto Condominial - ${closingMonth}`, 
+            `<div style="font-family: sans-serif; padding: 20px;">
+              <h2>Olá, ${resident.name}!</h2>
+              <p>O fechamento do mês <strong>${closingMonth}</strong> foi realizado com sucesso.</p>
+              <p>Seu boleto no valor de <strong>R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> já está disponível no portal.</p>
+              <p>Acesse agora para realizar o pagamento e evitar juros.</p>
+              <br/>
+              <p>Atenciosamente,<br/><strong>Administração ${condo?.name || 'CondoPro'}</strong></p>
+            </div>`
+          );
+        }
+      });
+
+      await Promise.all(batchPromises);
+      await createAuditLog(`Fechamento mensal: ${closingMonth}`, 'INVOICE');
+      alert(`Sucesso! Foram gerados ${activeResidents.length} boletos.`);
+      setShowMonthlyClosingModal(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `condos/${user.condoId}/invoices/batch`);
+    }
+    setIsLoading(false);
   };
 
   const handleGenerateDebtClearanceCertificate = () => {
@@ -1619,6 +1726,85 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     window.open(`https://wa.me/?text=${message}`, '_blank');
   };
 
+  const handleCreateCashFlowEntry = async () => {
+    if (!user.condoId || !newCashFlowEntry.description || !newCashFlowEntry.amount || !newCashFlowEntry.date) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const cashFlowRef = collection(db, 'condos', user.condoId, 'cashFlow');
+      await addDoc(cashFlowRef, {
+        ...newCashFlowEntry,
+        createdAt: new Date().toISOString()
+      });
+      setShowCashFlowModal(false);
+      setNewCashFlowEntry({
+        type: 'EXPENSE',
+        category: 'FIXED',
+        amount: 0,
+        description: '',
+        date: new Date().toISOString().split('T')[0]
+      });
+      createAuditLog('Registrou entrada no fluxo de caixa', 'PAYMENT');
+      alert('Registro de fluxo de caixa criado com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/cashFlow`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateComplaint = async () => {
+    if (!user.condoId || !newComplaint.subject || !newComplaint.description) {
+      alert("Título e descrição são obrigatórios.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const complaintsRef = collection(db, 'condos', user.condoId, 'complaints');
+      const complaintData: any = {
+        ...newComplaint,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+        condoId: user.condoId
+      };
+
+      if (!newComplaint.isAnonymous) {
+        complaintData.senderId = user.id;
+        complaintData.senderName = user.name;
+      }
+
+      await addDoc(complaintsRef, complaintData);
+      setShowComplaintModal(false);
+      setNewComplaint({
+        type: 'RESIDENT',
+        subject: '',
+        description: '',
+        isAnonymous: false
+      });
+      createAuditLog('Registrou nova denúncia', 'COMPLAINT');
+      alert('Sua denúncia foi registrada com sucesso e será analisada pela administração.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/complaints`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateComplaintStatus = async (complaintId: string, status: Complaint['status']) => {
+    if (!user.condoId) return;
+    try {
+      const complaintRef = doc(db, 'condos', user.condoId, 'complaints', complaintId);
+      await setDoc(complaintRef, { status }, { merge: true });
+      createAuditLog(`Atualizou status da denúncia para ${status}`, 'COMPLAINT', complaintId);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/complaints/${complaintId}`);
+    }
+  };
+
   const handleCreateParkingSlot = async () => {
     if (!user.condoId || !newParkingSlot.number) {
       alert("O número da vaga é obrigatório.");
@@ -1730,6 +1916,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'ranking', label: 'Ranking & Prêmios', icon: Award, category: 'community' },
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag, category: 'community' },
     { id: 'finance', label: 'Financeiro', icon: DollarSign, category: 'management' },
+    { id: 'complaints', label: 'Canal de Denúncias', icon: AlertCircle, category: 'safety' },
     { id: 'gas', label: 'Consumo de Gás', icon: Zap, category: 'management' },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true, category: 'admin' },
     { id: 'risk', label: 'Previsão de Risco', icon: TrendingUp, adminOnly: true, category: 'admin' },
@@ -4058,50 +4245,86 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 {user.role !== 'RESIDENT' ? (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Receita Acumulada</p>
-                        <p className="text-3xl font-black text-slate-800">R$ {invoices.filter(i => i.status === 'PAID').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                        <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
-                          <ArrowRight className="w-3 h-3 -rotate-45" /> Total recebido
+                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Entradas Totais</p>
+                        <p className="text-3xl font-black text-emerald-600">
+                          R$ {(
+                            invoices.filter(i => i.status === 'PAID').reduce((acc, i) => acc + i.amount, 0) +
+                            cashFlowEntries.filter(e => e.type === 'INCOME').reduce((acc, e) => acc + e.amount, 0)
+                          ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-2 flex items-center gap-1 uppercase">
+                          Incluso Boletos Pagos + Avulsos
                         </p>
                       </div>
-                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Inadimplência</p>
-                        <p className="text-3xl font-black text-red-500">R$ {invoices.filter(i => i.status === 'OVERDUE').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                        <p className="text-xs text-red-400 font-bold mt-2">{invoices.filter(i => i.status === 'OVERDUE').length} moradores com pendências</p>
+                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Saídas Totais</p>
+                        <p className="text-3xl font-black text-red-600">
+                          R$ {cashFlowEntries.filter(e => e.type === 'EXPENSE').reduce((acc, e) => acc + e.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-[10px] text-red-400 font-bold mt-2 uppercase">
+                          Despesas Fixas e Variáveis
+                        </p>
                       </div>
-                      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Pendente Geral</p>
-                        <p className="text-3xl font-black text-orange-500">R$ {invoices.filter(i => i.status === 'PENDING').reduce((acc, i) => acc + i.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                        <p className="text-xs text-orange-400 font-bold mt-2">{invoices.filter(i => i.status === 'PENDING').length} boletos em aberto</p>
+                      <div className="bg-slate-900 p-8 rounded-3xl shadow-xl shadow-slate-900/10 text-white">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Saldo em Caixa</p>
+                        <p className="text-3xl font-black">
+                          R$ {(
+                            (invoices.filter(i => i.status === 'PAID').reduce((acc, i) => acc + i.amount, 0) +
+                             cashFlowEntries.filter(e => e.type === 'INCOME').reduce((acc, e) => acc + e.amount, 0)) -
+                            cashFlowEntries.filter(e => e.type === 'EXPENSE').reduce((acc, e) => acc + e.amount, 0)
+                          ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-2 uppercase">
+                          Disponibilidade Imediata
+                        </p>
                       </div>
                     </div>
 
-                    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                      <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                        <h3 className="text-lg font-bold text-slate-800">Fluxo de Caixa Recente</h3>
-                        <button className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold">Exportar PDF</button>
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">Fluxo de Caixa (Despesas e Receitas)</h3>
+                          <p className="text-xs text-slate-400">Controle de despesas fixas, variáveis e receitas operacionais.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => setShowCashFlowModal(true)}
+                            className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex items-center gap-2"
+                          >
+                            <Plus className="w-4 h-4" /> Novo Registro
+                          </button>
+                        </div>
                       </div>
-                      <div className="divide-y divide-gray-100">
-                        {[
-                          { desc: 'Taxa Condominial - Unid 101A', val: '+ R$ 450,00', date: '12/04', type: 'IN' },
-                          { desc: 'Manutenção Elevadores', val: '- R$ 1.200,00', date: '11/04', type: 'OUT' },
-                          { desc: 'Energia Áreas Comuns', val: '- R$ 3.400,00', date: '10/04', type: 'OUT' },
-                          { desc: 'Taxa Condominial - Unid 202B', val: '+ R$ 450,00', date: '10/04', type: 'IN' },
-                        ].map((item, i) => (
-                          <div key={i} className="px-8 py-4 flex justify-between items-center hover:bg-gray-50 transition-all">
+                      <div className="divide-y divide-slate-100">
+                        {cashFlowEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
+                          <div key={entry.id} className="px-8 py-6 flex justify-between items-center hover:bg-slate-50 transition-all">
                             <div className="flex items-center gap-4">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'IN' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                                {item.type === 'IN' ? <Plus className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${entry.type === 'INCOME' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                                {entry.type === 'INCOME' ? <ArrowUp className="w-6 h-6" /> : <ArrowDown className="w-6 h-6" />}
                               </div>
                               <div>
-                                <p className="font-bold text-slate-800">{item.desc}</p>
-                                <p className="text-xs text-gray-400">{item.date}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-slate-800">{entry.description}</p>
+                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${
+                                    entry.category === 'FIXED' ? 'bg-slate-100 text-slate-500' : 'bg-blue-100 text-blue-500'
+                                  }`}>
+                                    {entry.category === 'FIXED' ? 'Fixa' : 'Variável'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-400">{format(parseISO(entry.date), "dd 'de' MMMM", { locale: ptBR })}</p>
                               </div>
                             </div>
-                            <span className={`font-black ${item.type === 'IN' ? 'text-green-600' : 'text-red-600'}`}>{item.val}</span>
+                            <div className="text-right">
+                              <p className={`font-black ${entry.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {entry.type === 'INCOME' ? '+' : '-'} R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </p>
+                            </div>
                           </div>
                         ))}
+                        {cashFlowEntries.length === 0 && (
+                          <div className="p-10 text-center text-slate-400 font-bold">Nenhum registro encontrado.</div>
+                        )}
                       </div>
                     </div>
 
@@ -4125,6 +4348,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                               </button>
                             ))}
                           </div>
+                          <button 
+                            onClick={() => setShowMonthlyClosingModal(true)}
+                            className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all"
+                          >
+                            <Calendar className="w-4 h-4" /> Fechamento Mensal
+                          </button>
                           <button 
                             onClick={() => setShowAddInvoiceModal(true)}
                             className="bg-blue-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-blue-600/20 flex items-center gap-2 hover:bg-blue-700 transition-all ml-auto md:ml-0"
@@ -4294,6 +4523,38 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       </div>
                     </div>
 
+                    {/* Resident Cash Flow Extract */}
+                    <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200/60 overflow-hidden">
+                      <div className="flex justify-between items-center mb-6">
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-lg">Extrato de Despesas e Receitas</h4>
+                          <p className="text-slate-500 text-xs">Transparência na prestação de contas do condomínio</p>
+                        </div>
+                        <BarChart3 className="w-6 h-6 text-slate-400" />
+                      </div>
+                      <div className="divide-y divide-slate-50">
+                        {cashFlowEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
+                          <div key={entry.id} className="py-4 flex justify-between items-center hover:bg-slate-50 transition-all rounded-xl px-2">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.type === 'INCOME' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                                {entry.type === 'INCOME' ? <ArrowUp className="w-5 h-5" /> : <ArrowDown className="w-5 h-5" />}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-700 text-sm">{entry.description}</p>
+                                <p className="text-[10px] text-slate-400">{format(parseISO(entry.date), "dd/MM/yyyy", { locale: ptBR })} • {entry.category === 'FIXED' ? 'Fixa' : 'Variável'}</p>
+                              </div>
+                            </div>
+                            <p className={`font-black text-sm ${entry.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {entry.type === 'INCOME' ? '+' : '-'} R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                        ))}
+                        {cashFlowEntries.length === 0 && (
+                          <p className="py-8 text-center text-slate-400 italic text-sm">Nenhuma movimentação financeira registrada.</p>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden">
                       <div className="relative z-10">
                         <p className="text-white/60 font-bold uppercase tracking-widest text-xs mb-2">Próximo Vencimento</p>
@@ -4376,6 +4637,122 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     </div>
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {activeMenu === 'complaints' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center bg-slate-900 p-8 rounded-[2.5rem] text-white">
+                  <div>
+                    <h3 className="text-3xl font-black mb-2">Canal de Denúncias</h3>
+                    <p className="text-slate-400 font-medium">Relate irregularidades, abusos ou problemas com moradores, funcionários ou visitantes.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowComplaintModal(true)}
+                    className="bg-white text-slate-900 px-6 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-slate-100 transition-all shadow-xl shadow-white/10"
+                  >
+                    <Plus className="w-5 h-5" /> Registrar Denúncia
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="p-8 border-b border-slate-100 bg-slate-50/50">
+                    <h4 className="text-xl font-bold text-slate-800">
+                      {user.role === 'RESIDENT' ? 'Minhas Denúncias' : 'Gestão de Denúncias'}
+                    </h4>
+                    <p className="text-xs text-slate-400">Tratamento sigiloso e acompanhamento do status.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100 text-slate-800">
+                    {(user.role === 'RESIDENT' ? complaints.filter(c => c.senderId === user.id || c.isAnonymous) : complaints)
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .map((complaint) => {
+                        // Residents can only see their own non-anonymous complaints or their own anonymous ones (tracked by senderId if we saved it privately or just filter logic)
+                        // Actually, if it's anonymous, we might not want it to even show up for the resident if they lose session unless we track it.
+                        // For now, let's show to resident if senderId matches OR (admins see everything)
+                        const canSee = user.role !== 'RESIDENT' || (complaint.senderId === user.id);
+                        if (!canSee) return null;
+
+                        return (
+                          <div key={complaint.id} className="p-8 hover:bg-slate-50 transition-all">
+                            <div className="flex justify-between items-start mb-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                                  complaint.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-600' :
+                                  complaint.status === 'IN_REVIEW' ? 'bg-amber-100 text-amber-600' :
+                                  'bg-blue-100 text-blue-600'
+                                }`}>
+                                  {complaint.status === 'RESOLVED' ? 'Resolvido' :
+                                   complaint.status === 'IN_REVIEW' ? 'Em Análise' : 'Pendente'}
+                                </div>
+                                <span className="text-xs font-bold text-slate-400">
+                                  {format(parseISO(complaint.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                </span>
+                              </div>
+                              {user.role !== 'RESIDENT' && (
+                                <div className="flex gap-2">
+                                  <button 
+                                    onClick={() => handleUpdateComplaintStatus(complaint.id, 'IN_REVIEW')}
+                                    className="p-2 hover:bg-amber-100 text-amber-600 rounded-lg transition-colors"
+                                    title="Marcar em Análise"
+                                  >
+                                    <Clock className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleUpdateComplaintStatus(complaint.id, 'RESOLVED')}
+                                    className="p-2 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
+                                    title="Marcar como Resolvido"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            <h5 className="text-lg font-bold text-slate-800 mb-2">{complaint.subject}</h5>
+                            <p className="text-slate-600 text-sm mb-4 leading-relaxed">{complaint.description}</p>
+                            <div className="flex items-center gap-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                              <span className="flex items-center gap-2">
+                                <Users className="w-3 h-3" />
+                                Tipo: {
+                                  complaint.type === 'RESIDENT' ? 'Morador' :
+                                  complaint.type === 'EMPLOYEE' ? 'Funcionário' :
+                                  complaint.type === 'VISITOR' ? 'Visitante' : 'Outro'
+                                }
+                              </span>
+                              <span className="flex items-center gap-2">
+                                <Shield className={`w-3 h-3 ${complaint.isAnonymous ? 'text-blue-500' : 'text-slate-400'}`} />
+                                {complaint.isAnonymous ? 'Anônimo' : `Identificado: ${complaint.senderName}`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {complaints.length === 0 && (
+                      <div className="p-20 text-center space-y-4">
+                        <AlertCircle className="w-12 h-12 text-slate-200 mx-auto" />
+                        <p className="text-slate-400 font-bold">Nenhuma denúncia registrada até o momento.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-blue-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-blue-600/20">
+                    <h4 className="text-xl font-black mb-4 flex items-center gap-2">
+                      <Shield className="w-6 h-6" /> Compromisso com Sigilo
+                    </h4>
+                    <p className="text-blue-100 text-sm leading-relaxed">
+                      Todas as denúncias registradas de forma anônima garantem o total sigilo do denunciante. Seus dados não são armazenados no registro e nem revelados aos administradores.
+                    </p>
+                  </div>
+                  <div className="bg-slate-800 p-8 rounded-[2.5rem] text-white">
+                    <h4 className="text-xl font-black mb-4 flex items-center gap-2">
+                      <Info className="w-6 h-6" /> Como funciona?
+                    </h4>
+                    <p className="text-slate-400 text-sm leading-relaxed">
+                      A administração recebe a denúncia, inicia um processo interno de averiguação e, se necessário, aplica as medidas disciplinares previstas na Convenção e Regimento Interno.
+                    </p>
+                  </div>
+                </div>
               </motion.div>
             )}
 
@@ -4965,7 +5342,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email (Opcional, para login via Google/Recuperação)</label>
                   <input 
                     type="email" 
                     value={newResident.email}
@@ -4986,7 +5363,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário (Login)</label>
                     <input 
                       type="text" 
                       value={newResident.login}
@@ -4994,6 +5371,23 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       placeholder="maria.souza" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Senha Temporária</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      value={newResident.tempPassword}
+                      onChange={(e) => setNewResident({...newResident, tempPassword: e.target.value})}
+                      placeholder="Defina uma senha inicial" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                    <div className="mt-1 flex items-center gap-2">
+                      <Info className="w-3 h-3 text-blue-500" />
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">O morador deverá alterar esta senha no primeiro acesso.</p>
+                    </div>
                   </div>
                 </div>
                 <button 
@@ -6009,6 +6403,279 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
             </motion.div>
           </div>
         )}
+
+        {showCashFlowModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-800">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowCashFlowModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <h3 className="text-xl font-bold text-slate-800">Novo Registro Financeiro</h3>
+                <button onClick={() => setShowCashFlowModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                  {(['INCOME', 'EXPENSE'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setNewCashFlowEntry({ ...newCashFlowEntry, type })}
+                      className={`flex-1 py-3 rounded-xl text-xs font-black uppercase transition-all ${
+                        newCashFlowEntry.type === type ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                      }`}
+                    >
+                      {type === 'INCOME' ? 'Receita' : 'Despesa'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
+                  <select 
+                    value={newCashFlowEntry.category}
+                    onChange={(e) => setNewCashFlowEntry({ ...newCashFlowEntry, category: e.target.value as any })}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="FIXED">Fixa</option>
+                    <option value="VARIABLE">Variável</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
+                  <input 
+                    type="text" 
+                    value={newCashFlowEntry.description}
+                    onChange={(e) => setNewCashFlowEntry({ ...newCashFlowEntry, description: e.target.value })}
+                    placeholder="Ex: Pagamento Internet ou Taxa Extra" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Valor (R$)</label>
+                    <input 
+                      type="number" 
+                      value={newCashFlowEntry.amount || ''}
+                      onChange={(e) => setNewCashFlowEntry({ ...newCashFlowEntry, amount: parseFloat(e.target.value) })}
+                      placeholder="0.00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
+                    <input 
+                      type="date" 
+                      value={newCashFlowEntry.date}
+                      onChange={(e) => setNewCashFlowEntry({ ...newCashFlowEntry, date: e.target.value })}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleCreateCashFlowEntry}
+                  disabled={isLoading}
+                  className={`w-full py-4 text-white rounded-2xl font-bold mt-4 shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 transition-all ${
+                    newCashFlowEntry.type === 'INCOME' ? 'bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-700' : 'bg-red-600 shadow-red-600/20 hover:bg-red-700'
+                  }`}
+                >
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  Salvar Registro
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showComplaintModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-800">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowComplaintModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <Shield className="w-6 h-6 text-blue-600" />
+                  <h3 className="text-xl font-bold text-slate-800">Registrar Denúncia</h3>
+                </div>
+                <button onClick={() => setShowComplaintModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                  <p className="text-xs text-amber-700 leading-relaxed font-medium">
+                    Sua denúncia será tratada com total confidencialidade. Informações falsas podem acarretar em punições conforme o regimento interno.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Denunciado (Quem?)</label>
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                    {(['RESIDENT', 'EMPLOYEE', 'VISITOR', 'OTHER'] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setNewComplaint({ ...newComplaint, type: t })}
+                        className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${
+                          newComplaint.type === t ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                        }`}
+                      >
+                        {t === 'RESIDENT' ? 'Morador' : t === 'EMPLOYEE' ? 'Func.' : t === 'VISITOR' ? 'Visit.' : 'Outro'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Assunto / Título</label>
+                  <input 
+                    type="text" 
+                    value={newComplaint.subject}
+                    onChange={(e) => setNewComplaint({ ...newComplaint, subject: e.target.value })}
+                    placeholder="Ex: Barulho excessivo fora do horário" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição Detalhada</label>
+                  <textarea 
+                    value={newComplaint.description}
+                    onChange={(e) => setNewComplaint({ ...newComplaint, description: e.target.value })}
+                    placeholder="Descreva o ocorrido com o máximo de detalhes possible (data, hora, local, etc)." 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[120px]" 
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${newComplaint.isAnonymous ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'}`}>
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Denúncia Anônima</p>
+                      <p className="text-[10px] text-slate-500 uppercase font-black">Ocultar minha identidade</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setNewComplaint({ ...newComplaint, isAnonymous: !newComplaint.isAnonymous })}
+                    className={`w-12 h-6 rounded-full p-1 transition-all ${newComplaint.isAnonymous ? 'bg-blue-600' : 'bg-slate-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full transition-all ${newComplaint.isAnonymous ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                <button 
+                  onClick={handleCreateComplaint}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold mt-4 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                  Enviar Denúncia
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showMonthlyClosingModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 text-slate-800">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowMonthlyClosingModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-emerald-50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Fechamento Mensal</h3>
+                  <p className="text-xs text-emerald-600 font-bold uppercase tracking-widest mt-1">{closingMonth}</p>
+                </div>
+                <button onClick={() => setShowMonthlyClosingModal(false)} className="p-2 hover:bg-emerald-100 rounded-full transition-colors text-emerald-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl">
+                  <div className="flex gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <p className="text-xs text-amber-700 leading-relaxed">
+                      Esta ação irá gerar boletos em lote para <strong>todos os moradores ativos</strong>. 
+                      Os valores de gás serão incluídos automaticamente conforme as leituras deste mês.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Taxa Condominial Base (R$)</label>
+                    <input 
+                      type="number" 
+                      defaultValue={450}
+                      id="baseFee"
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fundo de Reserva (R$)</label>
+                    <input 
+                      type="number" 
+                      defaultValue={45}
+                      id="reserveFund"
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    onClick={() => {
+                      const baseFee = Number((document.getElementById('baseFee') as HTMLInputElement).value);
+                      const reserveFund = Number((document.getElementById('reserveFund') as HTMLInputElement).value);
+                      handleMonthlyClosing(baseFee, reserveFund);
+                    }}
+                    className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" /> Executar Fechamento e Enviar
+                  </button>
+                  <p className="text-[10px] text-center text-slate-400 mt-4 uppercase font-bold tracking-widest">
+                    Os moradores receberão o boleto por e-mail automaticamente
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -6709,14 +7376,6 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                               >
                                 <LayoutDashboard className="w-3 h-3 group-hover:scale-110 transition-transform" />
                                 Gerenciar
-                              </button>
-                              <button 
-                                type="button"
-                                onClick={() => setCondoForPackages(c)}
-                                className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
-                              >
-                                <PackageIcon className="w-3 h-3 group-hover:scale-110 transition-transform" />
-                                Encomendas
                               </button>
                               <button 
                                 type="button"
@@ -7715,6 +8374,8 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [newSecurePassword, setNewSecurePassword] = useState('');
+  const [confirmSecurePassword, setConfirmSecurePassword] = useState('');
   const [appSettings, setAppSettings] = useState({ 
     logo: '', 
     primaryColor: '#00323d',
@@ -7984,6 +8645,33 @@ export default function App() {
       setShowLoginModal(false);
     } catch (error: any) {
       console.error("Erro no login:", error);
+      
+      // Handle the case where user has a temp profile but no Auth account yet
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        try {
+          // Find user by identifier (identifier could be login or email)
+          const q = query(
+            collection(db, 'users'), 
+            where(identifier.includes('@') ? 'email' : 'login', '==', identifier),
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          
+          if (!snap.empty) {
+            const userData = snap.docs[0].data() as AppUser;
+            // Case 1: First Access with Temporary Password
+            if (userData.tempPassword === password && userData.mustChangePassword) {
+              // Automatically activate account by creating it in Firebase Auth
+              await createUserWithEmailAndPassword(auth, userData.email, password);
+              setShowLoginModal(false);
+              return;
+            }
+          }
+        } catch (innerErr) {
+          console.error("Error activating account:", innerErr);
+        }
+      }
+
       let msg = "Falha ao entrar. Verifique suas credenciais.";
       
       if (error.code === 'auth/firebase-app-check-token-is-invalid') {
@@ -8082,6 +8770,40 @@ export default function App() {
     }
   };
 
+  const handleUpdateSecurePassword = async () => {
+    if (!newSecurePassword || newSecurePassword.length < 6) {
+      alert("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (newSecurePassword !== confirmSecurePassword) {
+      alert("As senhas não coincidem.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newSecurePassword);
+        
+        // Update Firestore to clear the flags
+        const userRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userRef, { 
+          mustChangePassword: false, 
+          tempPassword: deleteField() // Remove temp password from document
+        }, { merge: true });
+
+        // Update local user state
+        setUser(prev => prev ? ({ ...prev, mustChangePassword: false }) : null);
+        alert("Senha atualizada com sucesso! Agora você pode acessar a plataforma.");
+      }
+    } catch (err: any) {
+      console.error("Erro ao atualizar senha:", err);
+      alert("Erro ao atualizar senha: " + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-white">
@@ -8107,6 +8829,65 @@ export default function App() {
 
   return (
     <div className="font-sans text-primary">
+      {user && user.mustChangePassword && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden"
+          >
+            <div className="p-10 text-center space-y-6">
+              <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                <Key className="w-10 h-10" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight">Primeiro Acesso</h3>
+                <p className="text-slate-500 font-medium">Por segurança, você deve definir uma senha definitiva para continuar.</p>
+              </div>
+
+              <div className="space-y-4 text-left pt-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Nova Senha</label>
+                  <input 
+                    type="password"
+                    value={newSecurePassword}
+                    onChange={(e) => setNewSecurePassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full p-5 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-600/20 focus:bg-white focus:outline-none transition-all font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Confirmar Senha</label>
+                  <input 
+                    type="password"
+                    value={confirmSecurePassword}
+                    onChange={(e) => setConfirmSecurePassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full p-5 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-600/20 focus:bg-white focus:outline-none transition-all font-mono"
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={handleUpdateSecurePassword}
+                disabled={isLoading}
+                className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                {isLoading ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Check className="w-6 h-6" />}
+                Definir Senha e Entrar
+              </button>
+
+              <button 
+                onClick={() => signOut(auth)}
+                className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors uppercase tracking-widest"
+              >
+                Sair e voltar depois
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const visitorId = urlParams.get('v');
@@ -8229,7 +9010,7 @@ export default function App() {
                       )}
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                          {isRegistering ? 'Email' : 'Email, CPF ou Login'}
+                          {isRegistering ? 'Email' : 'E-mail ou Usuário (Login/CPF)'}
                         </label>
                         <input 
                           name={isRegistering ? "email" : "identifier"}
