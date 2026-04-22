@@ -313,22 +313,32 @@ service cloud.firestore {
 
     match /users/{userId} {
       // Users can read their own data. Super Admins can read all.
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin() || (isAuthenticated() && getUserData().role == 'CONDO_ADMIN' && getUserData().condoId == resource.data.condoId);
       allow list: if isAuthenticated(); // Allow searching for placeholders
       
       // Creation: 
       // 1. User creating their own profile (cannot make themselves SUPER_ADMIN)
       // 2. SUPER_ADMIN creating any user
+      // 3. CONDO_ADMIN creating a RESIDENT for their condo
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
-                      ((isOwner(userId) && request.resource.data.role != 'SUPER_ADMIN') || isAdmin());
+                      (
+                        (isOwner(userId) && request.resource.data.role != 'SUPER_ADMIN') || 
+                        isAdmin() ||
+                        (getUserData().role == 'CONDO_ADMIN' && request.resource.data.condoId == getUserData().condoId && request.resource.data.role == 'RESIDENT')
+                      );
       
       // Update:
       // 1. User updating their own profile (cannot change their role)
       // 2. SUPER_ADMIN updating any user
+      // 3. CONDO_ADMIN updating a RESIDENT for their condo
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
-                      ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+                      (
+                        (isOwner(userId) && request.resource.data.role == resource.data.role) || 
+                        isAdmin() ||
+                        (getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role == 'RESIDENT')
+                      );
       
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isAuthenticated() && getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role == 'RESIDENT');
     }
 
     match /condos/{condoId} {

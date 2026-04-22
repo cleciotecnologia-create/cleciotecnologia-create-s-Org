@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, FormEvent } from 'react';
+import { useState, useMemo, useEffect, FormEvent, useRef } from 'react';
 import { 
   Bell, Plus, MapPin, Users, AlertTriangle, Sparkles, Shield, Building2, 
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
@@ -100,6 +100,34 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
+
+// Helper to remove undefined fields before sending to Firestore
+const sanitizeData = (data: any) => {
+  if (!data || typeof data !== 'object') return data;
+  return Object.fromEntries(
+    Object.entries(data).filter(([_, v]) => v !== undefined)
+  );
+};
+
+const formatCPF = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  return digits
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+};
+
+const formatPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/(\d{2})(\d)/, '($1)$2')
+      .replace(/(\d{4})(\d)/, '$1-$2');
+  }
+  return digits
+    .replace(/(\d{2})(\d)/, '($1)$2')
+    .replace(/(\d{5})(\d)/, '$1-$2');
+};
 
 // --- Mock Data (Fallback) ---
 const MOCK_CONDO: Condo = {
@@ -454,7 +482,15 @@ const PublicVisitorCard = ({ visitorId }: { visitorId: string }) => {
   );
 };
 
-const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
+const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendEmail, onSendWhatsApp }: { 
+  user: AppUser, 
+  onLogout: () => void, 
+  appSettings: any, 
+  createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, 
+  plans: Plan[],
+  onSendEmail: (to: string, subject: string, body: string) => Promise<boolean>,
+  onSendWhatsApp: (to: string, message: string) => Promise<boolean>
+}) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -519,14 +555,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   const [showEditResidentModal, setShowEditResidentModal] = useState(false);
   const [selectedResidentForEdit, setSelectedResidentForEdit] = useState<Resident | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const isSubmitting = useRef(false);
   const [newResident, setNewResident] = useState({ 
     name: '', 
     email: '', 
     unit: '', 
     block: '',
     tower: '',
-    phone: '', 
-    cpf: '', 
+    phone: '(00)00000-0000', 
+    cpf: '000.000.000-00', 
     login: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     isOwner: false,
@@ -614,42 +651,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     }
   }, [user, residents]);
 
-  const handleSendEmail = async (to: string, subject: string, body: string) => {
-    try {
-      const response = await fetch('/api/notify/email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, subject, body }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Erro ao enviar e-mail');
-      return true;
-    } catch (error) {
-      console.error('Erro ao disparar e-mail:', error);
-      alert(error instanceof Error ? error.message : 'Erro ao enviar e-mail. Verifique a configuração do servidor.');
-      return false;
-    }
-  };
-
-  const handleSendWhatsApp = async (to: string, message: string) => {
-    try {
-      // Remover formatação do telefone
-      const cleanPhone = to.replace(/\D/g, '');
-      const response = await fetch('/api/notify/whatsapp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: cleanPhone, message }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Erro ao enviar WhatsApp');
-      return true;
-    } catch (error) {
-      console.error('Erro ao disparar WhatsApp:', error);
-      alert(error instanceof Error ? error.message : 'Erro ao enviar WhatsApp. Verifique a configuração do servidor.');
-      return false;
-    }
-  };
-
   const handleNotifyResident = async (resident: Resident, type: 'EMAIL' | 'WHATSAPP') => {
     setIsLoading(true);
     let success = false;
@@ -668,10 +669,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           <p style="font-size: 12px; color: #666; margin-top: 30px;">Gerado por CondoPro.</p>
         </div>
       `;
-      success = await handleSendEmail(resident.email, subject, body);
+      success = await onSendEmail(resident.email, subject, body);
     } else {
       const message = `Olá ${resident.name}, aqui é do Condomínio ${condo?.name || ''}. Você tem novos boletos e comunicados disponíveis no aplicativo CondoPro. Acesse agora: ${window.location.origin}`;
-      success = await handleSendWhatsApp(resident.phone, message);
+      success = await onSendWhatsApp(resident.phone, message);
     }
 
     if (success) {
@@ -702,7 +703,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           </div>
         </div>
       `;
-      const success = await handleSendEmail(resident.email, subject, body);
+      const success = await onSendEmail(resident.email, subject, body);
       if (success) sentCount++;
     }
 
@@ -710,48 +711,72 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     setIsLoading(false);
   };
 
-  const handleNotifyBoleto = async (invoice: Invoice) => {
-    setIsLoading(true);
+  const handleNotifyBoleto = async (invoice: Invoice, isUpdate: boolean = false, silent: boolean = false) => {
+    if (!silent) setIsLoading(true);
     const resident = residents.find(r => r.id === invoice.residentId);
     if (!resident) {
-      alert('Morador não encontrado!');
-      setIsLoading(false);
+      if (!silent) alert('Morador não encontrado!');
+      if (!silent) setIsLoading(false);
       return;
     }
 
-    const subject = `SEU BOLETO: ${invoice.description} - Condomínio ${condo?.name || ''}`;
+    const subject = isUpdate 
+      ? `ATUALIZAÇÃO DE BOLETO: ${invoice.description} - Condomínio ${condo?.name || ''}`
+      : `NOVO BOLETO: ${invoice.description} - Condomínio ${condo?.name || ''}`;
+
     const body = `
-      <div style="font-family: sans-serif; padding: 25px; color: #333; border: 1px solid #e2e8f0; border-radius: 16px; max-width: 600px; margin: auto;">
-        <h2 style="color: #2563eb; margin-bottom: 20px;">Olá, ${resident.name}!</h2>
-        <p>Seu boleto referente a <strong>${invoice.description}</strong> já está disponível.</p>
-        
-        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin: 25px 0;">
-          <p style="margin: 0 0 10px 0; font-size: 14px; color: #64748b;">DETALHES DO PAGAMENTO</p>
-          <p style="margin: 0; font-size: 24px; font-weight: 800; color: #1e293b;">R$ ${invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: bold; color: ${invoice.status === 'OVERDUE' ? '#ef4444' : '#1e293b'};">
-            Vencimento: ${new Date(invoice.dueDate).toLocaleDateString()}
-          </p>
+      <div style="font-family: sans-serif; padding: 25px; color: #333; border: 1px solid #e2e8f0; border-radius: 16px; max-width: 600px; margin: auto; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 25px;">
+           <h2 style="color: #2563eb; margin: 0;">${condo?.name || 'CondoPro'}</h2>
+           <p style="color: #64748b; font-size: 14px; margin: 5px 0 0 0;">Gestão Inteligente de Condomínios</p>
         </div>
 
-        <p>Acesse o aplicativo para baixar o PDF completo ou copiar o código de barras/PIX.</p>
+        <h3 style="color: #1e293b; margin-top: 0;">Olá, ${resident.name}!</h3>
+        <p>${isUpdate ? 'Houve uma atualização em um de seus boletos.' : 'Um novo boleto foi gerado para sua unidade.'}</p>
+        
+        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px solid #f1f5f9;">
+          <p style="margin: 0 0 10px 0; font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em;">Detalhes do Boleto</p>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="color: #64748b;">Descrição:</span>
+            <span style="font-weight: bold; color: #1e293b;">${invoice.description}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="color: #64748b;">Valor:</span>
+            <span style="font-weight: 800; color: #2563eb; font-size: 18px;">R$ ${invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Vencimento:</span>
+            <span style="font-weight: bold; color: ${invoice.status === 'OVERDUE' ? '#ef4444' : '#1e293b'};">${new Date(invoice.dueDate).toLocaleDateString()}</span>
+          </div>
+          <div style="margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <span style="color: #64748b; font-size: 12px;">STATUS ATUAL:</span>
+            <span style="font-weight: black; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: ${invoice.status === 'PAID' ? '#dcfce7' : '#dbeafe'}; color: ${invoice.status === 'PAID' ? '#166534' : '#1e40af'}; text-transform: uppercase;">
+              ${invoice.status === 'PAID' ? 'PAGO' : invoice.status === 'OVERDUE' ? 'ATRASADO' : 'PENDENTE'}
+            </span>
+          </div>
+        </div>
+
+        <p style="font-size: 14px; color: #475569;">Acesse o sistema para visualizar o PDF completo, copiar o código de barras ou realizar o pagamento via PIX:</p>
         
         <div style="text-align: center; margin-top: 35px;">
-          <a href="${window.location.origin}" style="display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);">
-            Ver Boleto no CondoPro
+          <a href="${window.location.origin}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);">
+            Acessar Plataforma CondoPro
           </a>
         </div>
-        
-        <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 40px;">
-          Este é um e-mail automático enviado por CondoPro em nome de ${condo?.name || 'seu condomínio'}.
-        </p>
+
+        <div style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center;">
+          <p style="font-size: 12px; color: #94a3b8; margin: 0;">Esta é uma mensagem automática, por favor não responda.</p>
+          <p style="font-size: 12px; color: #94a3b8; margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} ${condo?.name || 'CondoPro'} - Todos os direitos reservados.</p>
+        </div>
       </div>
     `;
 
-    const success = await handleSendEmail(resident.email, subject, body);
-    if (success) {
+    const success = await onSendEmail(resident.email, subject, body);
+    if (success && !silent) {
       alert(`Boleto enviado com sucesso para ${resident.name}!`);
     }
-    setIsLoading(false);
+
+    if (!silent) setIsLoading(false);
   };
 
   const handleAddPoints = async (residentId: string, amount: number, reason: string) => {
@@ -1193,69 +1218,256 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   }, [newMessage, user.condoId, user.id, user.name]);
 
   const handleAddResident = async () => {
-    if (!newResident.name || (!newResident.email && !newResident.login)) {
-      alert("Nome e pelo menos um identificador (E-mail ou Login) são obrigatórios.");
+    if (!user?.condoId) {
+      alert("Erro: ID do condomínio não identificado. Por favor, recarregue a página.");
       return;
     }
+
+    if (!newResident.name || !newResident.unit) {
+      alert("Nome e Unidade são obrigatórios.");
+      return;
+    }
+
+    if (!newResident.email && !newResident.login) {
+      alert("Pelo menos um identificador (E-mail ou Login) é obrigatório.");
+      return;
+    }
+
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
     setIsLoading(true);
+
     try {
+      // Normalize values for comparison and saving
+      const normalizedUnit = newResident.unit.trim();
+      const normalizedBlock = newResident.block.trim();
+      const normalizedTower = newResident.tower.trim();
+      const normalizedEmail = newResident.email?.trim().toLowerCase();
+      const normalizedCPF = newResident.cpf?.trim();
+      const normalizedLogin = newResident.login?.trim().toLowerCase();
+
+      // Check for duplicates in the same housing unit (Block + Tower + Unit)
+      const isDuplicate = residents.some(r => {
+        const sameAddress = 
+          (r.unit?.trim() === normalizedUnit) &&
+          (r.block?.trim() === normalizedBlock) &&
+          (r.tower?.trim() === normalizedTower);
+          
+        if (!sameAddress) return false;
+
+        // Within the same unit, we check if identity matches
+        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00';
+        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail;
+        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin;
+
+        return sameCPF || sameEmail || sameLogin;
+      });
+
+      if (isDuplicate) {
+        alert("Erro: Já existe um morador cadastrado com este CPF, E-mail ou Login para este exato bloco e unidade.");
+        setIsLoading(false);
+        isSubmitting.current = false;
+        return;
+      }
+
       const residentRef = doc(collection(db, 'condos', user.condoId, 'residents'));
       const residentData: Resident = {
         id: residentRef.id,
         condoId: user.condoId,
-        name: newResident.name,
-        unit: newResident.unit,
-        block: newResident.block,
-        tower: newResident.tower,
-        email: newResident.email,
-        phone: newResident.phone,
-        cpf: newResident.cpf,
-        login: newResident.login,
+        name: newResident.name.trim(),
+        unit: normalizedUnit,
+        block: newResident.block.trim(),
+        tower: newResident.tower.trim(),
+        email: normalizedEmail || '',
+        phone: newResident.phone.trim(),
+        cpf: normalizedCPF,
+        login: normalizedLogin,
         status: newResident.status,
         isOwner: newResident.isOwner,
-        ownerId: newResident.isOwner ? undefined : newResident.ownerId,
-        tenantIds: newResident.isOwner ? [] : undefined
+        ownerId: newResident.isOwner ? '' : (newResident.ownerId || ''),
+        tenantIds: []
       };
-      await setDoc(residentRef, residentData);
 
+      await setDoc(residentRef, sanitizeData(residentData));
+
+      // Create internal user profile for login
       const userRef = doc(collection(db, 'users'));
       const userData: AppUser = {
         id: userRef.id,
-        name: newResident.name,
-        email: newResident.email,
+        name: newResident.name.trim(),
+        email: normalizedEmail || '',
         role: 'RESIDENT',
         condoId: user.condoId,
-        cpf: newResident.cpf,
-        login: newResident.login,
-        tempPassword: newResident.tempPassword || undefined,
+        cpf: normalizedCPF,
+        login: normalizedLogin,
+        tempPassword: newResident.tempPassword || '',
         mustChangePassword: !!newResident.tempPassword,
         createdAt: new Date().toISOString()
       };
-      await setDoc(userRef, userData);
+
+      await setDoc(userRef, sanitizeData(userData));
 
       await createAuditLog('Cadastrou novo morador', 'RESIDENT', residentRef.id, `Morador: ${newResident.name}, Unidade: ${newResident.unit}, Tipo: ${newResident.isOwner ? 'Proprietário' : 'Inquilino'}`);
 
+      alert("Morador cadastrado com sucesso!");
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
+      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '(00)00000-0000', cpf: '000.000.000-00', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
+    } catch (err: any) {
+      console.error("Erro ao adicionar morador:", err);
+      let errorMessage = "Ocorreu um erro ao salvar o morador.";
+      
+      if (err.code === 'permission-denied' || (err.message && err.message.includes('permission-denied'))) {
+        errorMessage = "Acesso negado: Você não tem permissão para cadastrar moradores neste condomínio.";
+      } else if (err.message) {
+        errorMessage = `Erro ao salvar: ${err.message}`;
+      }
+      
+      alert(errorMessage);
+    } finally {
+      setIsLoading(false);
+      isSubmitting.current = false;
+    }
+  };
+
+  const handleUpdateResident = async () => {
+    if (!user?.condoId || !selectedResidentForEdit) return;
+    
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+    setIsLoading(true);
+
+    try {
+      // Normalize values for comparison and saving
+      const normalizedUnit = selectedResidentForEdit.unit?.trim() || '';
+      const normalizedBlock = selectedResidentForEdit.block?.trim() || '';
+      const normalizedTower = selectedResidentForEdit.tower?.trim() || '';
+      const normalizedEmail = selectedResidentForEdit.email?.trim().toLowerCase();
+      const normalizedCPF = selectedResidentForEdit.cpf?.trim();
+      const normalizedLogin = selectedResidentForEdit.login?.trim().toLowerCase();
+
+      // Check for duplicates in the same unit (excluding the resident being edited)
+      const isDuplicate = residents.some(r => {
+        if (r.id === selectedResidentForEdit.id) return false;
+        
+        const sameAddress = 
+          (r.unit?.trim() === normalizedUnit) &&
+          (r.block?.trim() === normalizedBlock) &&
+          (r.tower?.trim() === normalizedTower);
+
+        if (!sameAddress) return false;
+
+        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00';
+        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail;
+        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin;
+
+        return sameCPF || sameEmail || sameLogin;
+      });
+
+      if (isDuplicate) {
+        alert("Erro: Já existe outro morador cadastrado com este CPF, E-mail ou Login para este bloco e unidade.");
+        setIsLoading(false);
+        isSubmitting.current = false;
+        return;
+      }
+
+      const residentRef = doc(db, 'condos', user.condoId, 'residents', selectedResidentForEdit.id);
+      
+      const updatedResident = {
+        ...selectedResidentForEdit,
+        name: selectedResidentForEdit.name.trim(),
+        unit: normalizedUnit,
+        block: normalizedBlock,
+        tower: normalizedTower,
+        email: normalizedEmail || '',
+        cpf: normalizedCPF,
+        login: normalizedLogin
+      };
+
+      await setDoc(residentRef, sanitizeData(updatedResident), { merge: true });
+      createAuditLog('Atualizou dados de morador', 'RESIDENT', selectedResidentForEdit.id, `Morador: ${selectedResidentForEdit.name}`, user.condoId);
+      setShowEditResidentModal(false);
+      setSelectedResidentForEdit(null);
+      alert('Morador atualizado com sucesso!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/residents`);
+      console.error("Erro ao atualizar morador:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/residents/${selectedResidentForEdit.id}`);
+    } finally {
+      setIsLoading(false);
+      isSubmitting.current = false;
+    }
+  };
+
+  const handleDeleteResident = async (id: string, name: string) => {
+    if (!user?.condoId) return;
+    if (!window.confirm(`Deseja realmente excluir o morador ${name}? Esta ação não pode ser desfeita.`)) return;
+
+    setIsLoading(true);
+    try {
+      const residentRef = doc(db, 'condos', user.condoId, 'residents', id);
+      await deleteDoc(residentRef);
+      await createAuditLog('Excluiu morador', 'RESIDENT', id, `Morador: ${name}`, user.condoId);
+      alert('Morador excluído com sucesso!');
+    } catch (err) {
+      console.error("Erro ao excluir morador:", err);
+      handleFirestoreError(err, OperationType.DELETE, `condos/${user.condoId}/residents/${id}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUpdateResident = async () => {
-    if (!user.condoId || !selectedResidentForEdit) return;
+  const handleCleanDuplicateResidents = async () => {
+    if (!user?.condoId || residents.length === 0) return;
+    if (!window.confirm("Essa ferramenta irá verificar e remover moradores duplicados (mesmo CPF/E-mail/Login na mesma Unidade/Bloco). Deseja continuar?")) return;
+    
     setIsLoading(true);
+    let deletedCount = 0;
     try {
-      const residentRef = doc(db, 'condos', user.condoId, 'residents', selectedResidentForEdit.id);
-      await setDoc(residentRef, selectedResidentForEdit, { merge: true });
-      createAuditLog('Atualizou dados de morador', 'RESIDENT', selectedResidentForEdit.id, `Morador: ${selectedResidentForEdit.name}`);
-      setShowEditResidentModal(false);
-      setSelectedResidentForEdit(null);
-      alert('Morador atualizado com sucesso!');
+      const seen = new Set<string>();
+      
+      for (const res of residents) {
+        const unit = res.unit?.trim() || '';
+        const block = res.block?.trim() || '';
+        const tower = res.tower?.trim() || '';
+        const email = res.email?.trim().toLowerCase() || '';
+        const cpf = res.cpf?.trim() || '';
+        const login = res.login?.trim().toLowerCase() || '';
+        
+        // Define address housing unit
+        const addressKey = `${block}|${tower}|${unit}`;
+        
+        // Try to identify the resident. CPF is strongest, then login, then email.
+        let residentIdentity = "";
+        if (cpf && cpf !== '000.000.000-00') {
+          residentIdentity = `cpf:${cpf}`;
+        } else if (login) {
+          residentIdentity = `login:${login}`;
+        } else if (email) {
+          residentIdentity = `email:${email}`;
+        }
+
+        if (!residentIdentity) continue;
+
+        const finalKey = `${addressKey}#${residentIdentity}`;
+
+        if (seen.has(finalKey)) {
+          // Duplicate found
+          const resRef = doc(db, 'condos', user.condoId, 'residents', res.id);
+          await deleteDoc(resRef);
+          deletedCount++;
+        } else {
+          seen.add(finalKey);
+        }
+      }
+      
+      if (deletedCount > 0) {
+        alert(`${deletedCount} registros duplicados foram removidos com sucesso.`);
+        await createAuditLog('Limpeza de moradores duplicados', 'RESIDENT', user.condoId, `Removidos ${deletedCount} duplicados`);
+      } else {
+        alert("Nenhum registro duplicado encontrado na mesma unidade.");
+      }
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/residents/${selectedResidentForEdit.id}`);
+      console.error("Erro na limpeza de duplicados:", err);
+      alert("Erro ao processar limpeza de duplicados.");
     } finally {
       setIsLoading(false);
     }
@@ -1321,6 +1533,28 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
       const pkgRef = doc(db, 'condos', condo.id, 'packages', pkgId);
       await setDoc(pkgRef, { status: 'DELIVERED', deliveredAt: new Date().toISOString() }, { merge: true });
       await createAuditLog('Confirmou entrega de encomenda', 'CONDO', pkgId, `Status: DELIVERED`);
+      
+      // Notificar morador sobre a retirada (opcional, mas bom para registro)
+      const pkgSnap = await getDoc(pkgRef);
+      if (pkgSnap.exists()) {
+        const pkgData = pkgSnap.data() as Package;
+        const resident = residents.find(r => r.id === pkgData.residentId);
+        if (resident) {
+          const message = `Olá ${resident.name}, sua encomenda (${pkgData.description}) foi entregue/retirada com sucesso na portaria do Condomínio ${condo?.name || ''}.`;
+          onSendWhatsApp(resident.phone, message);
+          onSendEmail(resident.email, `ENCOMENDA ENTREGUE: ${pkgData.description}`, `
+            <div style="font-family: sans-serif; padding: 20px; color: #333;">
+              <h2 style="color: #10b981;">Encomenda Retirada!</h2>
+              <p>Olá, <strong>${resident.name}</strong>.</p>
+              <p>Sua encomenda <strong>${pkgData.description}</strong> foi marcada como entregue/retirada na portaria.</p>
+              <p>Data/Hora: ${new Date().toLocaleString('pt-BR')}</p>
+              <br/>
+              <p style="font-size: 12px; color: #666;">Condomínio ${condo?.name || ''}</p>
+            </div>
+          `);
+        }
+      }
+
       alert('Entrega confirmada com sucesso!');
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `condos/${condo?.id}/packages/${pkgId}`);
@@ -1351,6 +1585,28 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
 
       await setDoc(pkgRef, pkgData);
       await createAuditLog('Registrou nova encomenda', 'CONDO', pkgRef.id, `Para: ${pkgData.residentName}`);
+
+      // Notificar morador
+      if (pkgResident) {
+        const message = `Olá ${pkgResident.name}, uma nova encomenda (${pkgData.description}) acaba de chegar para você na portaria do Condomínio ${condo?.name || ''}.`;
+        onSendWhatsApp(pkgResident.phone, message);
+        onSendEmail(pkgResident.email, `CHEGOU UMA ENCOMENDA: ${pkgData.description}`, `
+          <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #eee; border-radius: 12px;">
+            <h2 style="color: #2563eb;">Chegou Encomenda!</h2>
+            <p>Olá, <strong>${pkgResident.name}</strong>.</p>
+            <p>Uma nova encomenda foi registrada para sua unidade (<strong>${pkgResident.unit}</strong>).</p>
+            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>Descrição:</strong> ${pkgData.description}</p>
+              <p><strong>Transportadora:</strong> ${pkgData.carrier}</p>
+              <p><strong>Recebido em:</strong> ${new Date().toLocaleString('pt-BR')}</p>
+            </div>
+            <p>Por favor, compareça à portaria para retirar sua encomenda.</p>
+            <br/>
+            <p style="font-size: 12px; color: #666;">Condomínio ${condo?.name || ''}</p>
+          </div>
+        `);
+      }
+
       setShowAddPackageModal(false);
       setNewPackage({ residentId: '', description: '', carrier: '' });
       alert('Encomenda registrada com sucesso!');
@@ -1406,6 +1662,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
           paymentDate: new Date().toISOString() 
         }, { merge: true });
 
+        const updatedInvoice = { ...inv, status: 'PAID' as const, paymentDate: new Date().toISOString() };
+        handleNotifyBoleto(updatedInvoice, true, true); // Notify update silently in background
+
         // Award points for on-time payment
         handleAddPoints(inv.residentId, 100, 'Pagamento em dia');
         createAuditLog('Faturamento marcado como pago', 'PAYMENT', invoiceId);
@@ -1448,24 +1707,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         };
 
         const invoiceId = `inv_${Date.now()}_${resident.id}_${Math.random().toString(36).substr(2, 5)}`;
-        await setDoc(doc(db, 'condos', user.condoId!, 'invoices', invoiceId), {
+        const finalInvoice: Invoice = {
           ...invoiceData,
           id: invoiceId
-        });
+        } as Invoice;
+
+        await setDoc(doc(db, 'condos', user.condoId!, 'invoices', invoiceId), finalInvoice);
 
         if (resident.email) {
-          await handleSendEmail(
-            resident.email, 
-            `Boleto Condominial - ${closingMonth}`, 
-            `<div style="font-family: sans-serif; padding: 20px;">
-              <h2>Olá, ${resident.name}!</h2>
-              <p>O fechamento do mês <strong>${closingMonth}</strong> foi realizado com sucesso.</p>
-              <p>Seu boleto no valor de <strong>R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> já está disponível no portal.</p>
-              <p>Acesse agora para realizar o pagamento e evitar juros.</p>
-              <br/>
-              <p>Atenciosamente,<br/><strong>Administração ${condo?.name || 'CondoPro'}</strong></p>
-            </div>`
-          );
+          await handleNotifyBoleto(finalInvoice, false, true); // silent = true
         }
       });
 
@@ -1529,12 +1779,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     setIsLoading(true);
     try {
       const invoicesRef = collection(db, 'condos', user.condoId, 'invoices');
-      const docRef = await addDoc(invoicesRef, {
+      const docRef = await addDoc(invoicesRef, sanitizeData({
         ...newInvoice,
         amount: Number(newInvoice.amount),
         condoId: user.condoId,
         createdAt: new Date().toISOString()
-      });
+      }));
       
       const invoice = { id: docRef.id, ...newInvoice, amount: Number(newInvoice.amount), condoId: user.condoId, createdAt: new Date().toISOString() } as Invoice;
       
@@ -1565,12 +1815,12 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     setIsLoading(true);
     try {
       const announcementsRef = collection(db, 'condos', user.condoId, 'announcements');
-      const docRef = await addDoc(announcementsRef, {
+      const docRef = await addDoc(announcementsRef, sanitizeData({
         ...newAnnouncement,
         condoId: user.condoId,
         authorName: user.name,
         createdAt: new Date().toISOString()
-      });
+      }));
       
       const announcement = { id: docRef.id, ...newAnnouncement, condoId: user.condoId, authorName: user.name, createdAt: new Date().toISOString() } as Announcement;
       
@@ -1777,7 +2027,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
         complaintData.senderName = user.name;
       }
 
-      await addDoc(complaintsRef, complaintData);
+      await addDoc(complaintsRef, sanitizeData(complaintData));
       setShowComplaintModal(false);
       setNewComplaint({
         type: 'RESIDENT',
@@ -1903,6 +2153,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'cameras', label: 'Monitoramento', icon: Activity, premiumOnly: true, category: 'safety' },
     { id: 'assemblies', label: 'Assembleias', icon: Gavel, category: 'communication' },
     { id: 'minutes', label: 'Atas e Documentos', icon: FileText, category: 'communication' },
+    { id: 'packages', label: 'Encomendas', icon: PackageIcon, category: 'management' },
     { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true, category: 'management' },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle, category: 'communication' },
     { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true, category: 'management' },
@@ -1911,7 +2162,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
     { id: 'parking', label: 'Vagas de Garagem', icon: Car, category: 'management' },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield, category: 'safety' },
     { id: 'tags', label: 'Tags de Acesso', icon: Tag, category: 'safety' },
-    { id: 'packages', label: 'Encomendas', icon: PackageIcon, category: 'management' },
     { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true, category: 'management' },
     { id: 'ranking', label: 'Ranking & Prêmios', icon: Award, category: 'community' },
     { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag, category: 'community' },
@@ -2375,16 +2625,104 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
+            {activeMenu === 'packages' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-800">Encomendas</h3>
+                    <p className="text-slate-500 text-sm">Gerenciamento de pacotes recebidos pela portaria.</p>
+                  </div>
+                  {user.role !== 'RESIDENT' && (
+                    <button 
+                      onClick={() => setShowAddPackageModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                    >
+                      <Plus className="w-5 h-5" /> Receber Encomenda
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {packages.length === 0 ? (
+                    <div className="bg-white p-20 rounded-[2.5rem] text-center border border-slate-200/60">
+                      <PackageIcon className="w-16 h-16 mx-auto mb-4 text-slate-200" />
+                      <p className="text-slate-400 font-bold">Nenhuma encomenda registrada.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Morador / Unidade</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transportadora</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Recebido em</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                              <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {packages.map((pkg) => (
+                              <tr key={pkg.id} className="hover:bg-slate-50 transition-all">
+                                <td className="px-8 py-4">
+                                  <p className="font-bold text-slate-800">{pkg.residentName}</p>
+                                  <p className="text-xs text-slate-400">Unidade {pkg.unit}</p>
+                                </td>
+                                <td className="px-8 py-4 text-sm font-medium text-slate-600">{pkg.description}</td>
+                                <td className="px-8 py-4 text-sm font-medium text-slate-600">{pkg.carrier}</td>
+                                <td className="px-8 py-4 text-sm text-slate-500">
+                                  {format(parseISO(pkg.receivedAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                </td>
+                                <td className="px-8 py-4">
+                                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                                    pkg.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-600' :
+                                    pkg.status === 'RETURNED' ? 'bg-red-100 text-red-600' :
+                                    'bg-blue-100 text-blue-600'
+                                  }`}>
+                                    {pkg.status === 'DELIVERED' ? 'Entregue' : pkg.status === 'RETURNED' ? 'Devolvido' : 'Pendente'}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-4">
+                                  {user.role !== 'RESIDENT' && pkg.status === 'PENDING' && (
+                                    <button 
+                                      onClick={() => handleConfirmDelivery(pkg.id)}
+                                      className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 whitespace-nowrap"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" /> Confirmar Entrega
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'residents' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-primary">Gestão de Moradores</h3>
-                  <button 
-                    onClick={() => setShowAddResidentModal(true)}
-                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
-                  >
-                    <Plus className="w-5 h-5" /> Novo Morador
-                  </button>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={handleCleanDuplicateResidents}
+                      className="bg-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-200 transition-all"
+                      title="Clique para remover registros duplicados na mesma unidade"
+                    >
+                      <RefreshCw className="w-4 h-4" /> Limpar Duplicados
+                    </button>
+                    <button 
+                      onClick={() => setShowAddResidentModal(true)}
+                      className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 transition-all"
+                    >
+                      <Plus className="w-5 h-5" /> Novo Morador
+                    </button>
+                  </div>
                 </div>
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
                   <table className="w-full text-left">
@@ -2404,7 +2742,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       {residents.map((res) => (
                         <tr key={res.id} className="hover:bg-gray-50 transition-all">
                           <td className="px-8 py-4 font-bold text-primary">{res.name}</td>
-                          <td className="px-8 py-4 text-sm font-medium text-gray-600">{res.unit}</td>
+                          <td className="px-8 py-4">
+                            <p className="text-sm font-bold text-gray-600">{res.unit}</p>
+                            {(res.block || res.tower) && (
+                              <p className="text-[10px] text-gray-400">
+                                {res.block && `B: ${res.block}`} {res.tower && `T: ${res.tower}`}
+                              </p>
+                            )}
+                          </td>
                           <td className="px-8 py-4">
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.isOwner ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>
                               {res.isOwner ? 'Proprietário' : 'Inquilino'}
@@ -2442,15 +2787,23 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                             </div>
                           </td>
                           <td className="px-8 py-4">
-                            <button 
-                              onClick={() => {
-                                setSelectedResidentForEdit(res);
-                                setShowEditResidentModal(true);
-                              }}
-                              className="text-primary hover:underline text-sm font-bold"
-                            >
-                              Editar
-                            </button>
+                            <div className="flex items-center gap-4">
+                              <button 
+                                onClick={() => {
+                                  setSelectedResidentForEdit(res);
+                                  setShowEditResidentModal(true);
+                                }}
+                                className="text-primary hover:underline text-sm font-bold"
+                              >
+                                Editar
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteResident(res.id, res.name)}
+                                className="text-red-500 hover:text-red-700 hover:underline text-sm font-bold"
+                              >
+                                Excluir
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3726,86 +4079,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
-            {activeMenu === 'packages' && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-bold text-slate-800">Controle de Encomendas</h3>
-                  {user.role !== 'RESIDENT' && (
-                    <button 
-                      onClick={() => setShowAddPackageModal(true)}
-                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                    >
-                      <Plus className="w-5 h-5" /> Registrar Encomenda
-                    </button>
-                  )}
-                </div>
-                <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 border-b border-slate-100">
-                      <tr>
-                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Morador / Unidade</th>
-                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Descrição / Transportadora</th>
-                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Recebido em</th>
-                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Status</th>
-                        <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {packages.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold">Nenhuma encomenda encontrada.</td>
-                        </tr>
-                      ) : (
-                        packages.map((pkg) => (
-                          <tr key={pkg.id} className="hover:bg-slate-50 transition-all">
-                            <td className="px-8 py-6">
-                              <p className="font-bold text-slate-800">{pkg.residentName}</p>
-                              <p className="text-xs text-slate-400">Apto {pkg.unit}</p>
-                            </td>
-                            <td className="px-8 py-6">
-                              <p className="text-sm font-medium text-slate-600">{pkg.description}</p>
-                              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{pkg.carrier}</p>
-                            </td>
-                            <td className="px-8 py-6 text-sm text-slate-500">
-                              {new Date(pkg.receivedAt).toLocaleString()}
-                            </td>
-                            <td className="px-8 py-6">
-                              <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-full ${
-                                pkg.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
-                                pkg.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-600' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {pkg.status === 'PENDING' ? 'Aguardando Retirada' : 
-                                 pkg.status === 'DELIVERED' ? 'Entregue' : 'Devolvido'}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6">
-                              {pkg.status === 'PENDING' && user.role !== 'RESIDENT' && (
-                                <button 
-                                  onClick={() => handleConfirmDelivery(pkg.id)}
-                                  className="text-blue-600 font-bold text-sm hover:underline active:scale-95 transition-all"
-                                >
-                                  Confirmar Entrega
-                                </button>
-                              )}
-                              {pkg.status === 'PENDING' && user.role === 'RESIDENT' && (
-                                <button 
-                                  onClick={() => setSelectedPackageForQR(pkg)}
-                                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all"
-                                >
-                                  <QrCode className="w-4 h-4" /> QR Code de Retirada
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-            )}
-
             {activeMenu === 'moving' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -4920,6 +5193,113 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
               </motion.div>
             )}
 
+            {activeMenu === 'packages' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-800 tracking-tight">Gestão de Encomendas</h3>
+                    <p className="text-sm text-slate-400 mt-1">Controle de recebimento e entrega de encomendas dos moradores.</p>
+                  </div>
+                  {user.role !== 'RESIDENT' && (
+                    <button 
+                      onClick={() => setShowAddPackageModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                    >
+                      <Plus className="w-5 h-5" /> Registrar Recebimento
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 className="text-lg font-bold text-slate-800">Encomendas {user.role === 'RESIDENT' ? 'Minhas' : 'Recentes'}</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Apto / Bloco</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Morador</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transp.</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Recebido em</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                          <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {packages.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-8 py-20 text-center text-slate-400 font-bold">Nenhuma encomenda encontrada.</td>
+                          </tr>
+                        ) : (
+                          packages.map((pkg) => (
+                            <tr key={pkg.id} className="hover:bg-slate-50 transition-all">
+                              <td className="px-8 py-4 font-bold text-slate-800">Unid. {pkg.unit}</td>
+                              <td className="px-8 py-4 font-medium text-slate-600">{pkg.residentName}</td>
+                              <td className="px-8 py-4 text-sm text-slate-500">{pkg.description}</td>
+                              <td className="px-8 py-4 text-xs font-bold text-slate-400 truncate max-w-[120px]">{pkg.carrier}</td>
+                              <td className="px-8 py-4 text-xs text-slate-400 font-medium">
+                                {format(parseISO(pkg.receivedAt), 'dd/MM/yyyy HH:mm')}
+                              </td>
+                              <td className="px-8 py-4">
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                  pkg.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
+                                  pkg.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-600' :
+                                  'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {pkg.status === 'PENDING' ? 'Pendente' : pkg.status === 'DELIVERED' ? 'Entregue' : 'Devolvido'}
+                                </span>
+                              </td>
+                              <td className="px-8 py-4 text-right">
+                                <div className="flex justify-end gap-2">
+                                  {user.role !== 'RESIDENT' && pkg.status === 'PENDING' && (
+                                    <button 
+                                      onClick={() => handleConfirmDelivery(pkg.id)}
+                                      className="p-2.5 bg-emerald-100 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+                                      title="Confirmar Entrega"
+                                    >
+                                      <CheckCircle2 className="w-5 h-5" />
+                                    </button>
+                                  )}
+                                  {user.role !== 'RESIDENT' && (
+                                    <button 
+                                      onClick={async () => {
+                                        if (window.confirm("Deseja remover este registro?")) {
+                                          await deleteDoc(doc(db, 'condos', condo!.id, 'packages', pkg.id));
+                                          createAuditLog('Removeu registro de encomenda', 'CONDO', pkg.id, `Descrição: ${pkg.description}`);
+                                        }
+                                      }}
+                                      className="p-2.5 bg-red-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                      title="Remover Registro"
+                                    >
+                                      <Trash2 className="w-5 h-5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row items-center gap-8 text-white">
+                  <div className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                    <PackageIcon className="w-16 h-16 text-blue-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xl font-black mb-2">Notificações Automáticas</h4>
+                    <p className="text-slate-400 text-sm max-w-lg leading-relaxed">
+                      Ao registrar uma nova encomenda, o sistema dispara automaticamente notificações via e-mail e WhatsApp para o morador, reduzindo o tempo de armazenamento na portaria.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {activeMenu === 'audit' && (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }} 
@@ -5040,75 +5420,6 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                 </div>
                 <button 
                   onClick={handleCreatePackage}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20"
-                >
-                  Registrar Encomenda
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Add Package Modal */}
-      <AnimatePresence>
-        {showAddPackageModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              onClick={() => setShowAddPackageModal(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
-            >
-               <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-xl font-bold text-slate-800">Nova Encomenda</h3>
-                <button onClick={() => setShowAddPackageModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="p-8 space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Destinatário</label>
-                  <select 
-                    value={newPackage.residentId}
-                    onChange={(e) => setNewPackage({...newPackage, residentId: e.target.value})}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">Selecionar Morador</option>
-                    {residents.map(r => (
-                      <option key={r.id} value={r.id}>{r.name} (Apto {r.unit})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição / Conteúdo</label>
-                  <input 
-                    type="text" 
-                    value={newPackage.description}
-                    onChange={(e) => setNewPackage({...newPackage, description: e.target.value})}
-                    placeholder="Ex: Caixa média da Amazon" 
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Transportadora</label>
-                  <input 
-                    type="text" 
-                    value={newPackage.carrier}
-                    onChange={(e) => setNewPackage({...newPackage, carrier: e.target.value})}
-                    placeholder="Ex: Loggi, Sedex..." 
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-                  />
-                </div>
-                <button 
-                  onClick={handleCreatePackage}
                   className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95"
                 >
                   Registrar Encomenda
@@ -5163,6 +5474,26 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                       value={selectedResidentForEdit.email}
                       onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, email: e.target.value})}
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contato & Documentação</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input 
+                      type="text" 
+                      placeholder="Telefone" 
+                      value={selectedResidentForEdit.phone}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, phone: formatPhone(e.target.value)})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all" 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="CPF" 
+                      value={selectedResidentForEdit.cpf}
+                      onChange={(e) => setSelectedResidentForEdit({...selectedResidentForEdit, cpf: formatCPF(e.target.value)})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-blue-600/10 transition-all font-mono" 
                     />
                   </div>
                 </div>
@@ -5324,7 +5655,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <input 
                       type="text" 
                       value={newResident.phone}
-                      onChange={(e) => setNewResident({...newResident, phone: e.target.value})}
+                      onChange={(e) => setNewResident({...newResident, phone: formatPhone(e.target.value)})}
                       placeholder="(00) 00000-0000" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
@@ -5357,7 +5688,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
                     <input 
                       type="text" 
                       value={newResident.cpf}
-                      onChange={(e) => setNewResident({...newResident, cpf: e.target.value})}
+                      onChange={(e) => setNewResident({...newResident, cpf: formatCPF(e.target.value)})}
                       placeholder="000.000.000-00" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
@@ -6681,7 +7012,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans }: { use
   );
 };
 
-const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, createAuditLog, plans }: { user: AppUser, onLogout: () => void, appSettings: any, onUpdateSettings: (updates: any) => void, createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, plans: Plan[] }) => {
+const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, createAuditLog, plans, onSendEmail, onSendWhatsApp }: { 
+  user: AppUser, 
+  onLogout: () => void, 
+  appSettings: any, 
+  onUpdateSettings: (updates: any) => void, 
+  createAuditLog: (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => Promise<void>, 
+  plans: Plan[],
+  onSendEmail: (to: string, subject: string, body: string) => Promise<boolean>,
+  onSendWhatsApp: (to: string, message: string) => Promise<boolean>
+}) => {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
@@ -6747,10 +7087,10 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   });
   const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
   const [isSavingPlans, setIsSavingPlans] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '', login: '' });
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '000.000.000-00', login: '' });
   const [profileData, setProfileData] = useState({
     name: user.name || '',
-    cpf: user.cpf || '',
+    cpf: user.cpf || '000.000.000-00',
     login: user.login || '',
     avatarUrl: user.avatarUrl || ''
   });
@@ -6830,6 +7170,28 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
 
       await setDoc(pkgRef, pkgData);
       await createAuditLog('Registrou nova encomenda (Super Admin)', 'CONDO', pkgRef.id, `Condo: ${condoForPackages.name}, Destinatário: ${pkgData.residentName}`, condoForPackages.id);
+      
+      // Notificar morador
+      if (resident) {
+        const message = `Olá ${resident.name}, uma nova encomenda (${pkgData.description}) acaba de chegar para você na portaria do Condomínio ${condoForPackages.name}.`;
+        onSendWhatsApp(resident.phone, message);
+        onSendEmail(resident.email, `CHEGOU UMA ENCOMENDA: ${pkgData.description}`, `
+          <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #eee; border-radius: 12px;">
+            <h2 style="color: #2563eb;">Chegou Encomenda!</h2>
+            <p>Olá, <strong>${resident.name}</strong>.</p>
+            <p>Uma nova encomenda foi registrada pelo administrador para sua unidade no Condomínio <strong>${condoForPackages.name}</strong>.</p>
+            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>Descrição:</strong> ${pkgData.description}</p>
+              <p><strong>Transportadora:</strong> ${pkgData.carrier}</p>
+              <p><strong>Recebido em:</strong> ${new Date().toLocaleString('pt-BR')}</p>
+            </div>
+            <p>Por favor, compareça à portaria para retirar sua encomenda.</p>
+            <br/>
+            <p style="font-size: 12px; color: #666;">Gerado por CondoPro</p>
+          </div>
+        `);
+      }
+
       setShowAddPackageModal(false);
       setNewPackage({ residentId: '', description: '', carrier: '' });
     } catch (err) {
@@ -6846,6 +7208,29 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         deliveredAt: status === 'DELIVERED' ? new Date().toISOString() : undefined
       }, { merge: true });
       await createAuditLog('Alterou status de encomenda (Super Admin)', 'CONDO', pkgId, `Novo Status: ${status}`, condoForPackages.id);
+
+      // Notificar morador se foi entregue
+      if (status === 'DELIVERED') {
+        const pkgSnap = await getDoc(pkgRef);
+        if (pkgSnap.exists()) {
+          const pkgData = pkgSnap.data() as Package;
+          const tenant = allUsers.find(u => u.id === pkgData.residentId);
+          if (tenant) {
+            const message = `Olá ${tenant.name}, sua encomenda (${pkgData.description}) foi entregue/retirada com sucesso na portaria do Condomínio ${condoForPackages.name}.`;
+            onSendWhatsApp(tenant.phone, message);
+            onSendEmail(tenant.email, `ENCOMENDA ENTREGUE: ${pkgData.description}`, `
+              <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #10b981;">Encomenda Retirada!</h2>
+                <p>Olá, <strong>${tenant.name}</strong>.</p>
+                <p>Sua encomenda <strong>${pkgData.description}</strong> foi marcada como entregue/retirada na portaria do Condomínio ${condoForPackages.name}.</p>
+                <p>Data/Hora: ${new Date().toLocaleString('pt-BR')}</p>
+                <br/>
+                <p style="font-size: 12px; color: #666;">Gerado por CondoPro</p>
+              </div>
+            `);
+          }
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `condos/${condoForPackages.id}/packages/${pkgId}`);
     }
@@ -6856,6 +7241,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       alert("Por favor, preencha o nome, cidade e slug.");
       return;
     }
+
     try {
       const condoRef = doc(collection(db, 'condos'));
       const condoData: Condo = {
@@ -6871,11 +7257,11 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         createdAt: new Date().toISOString(),
         address: ''
       };
-      await setDoc(condoRef, condoData);
+      await setDoc(condoRef, sanitizeData(condoData));
 
       // Pré-popular comunicados de boas-vindas
       const welcomeAnnRef = doc(collection(db, 'condos', condoRef.id, 'announcements'));
-      await setDoc(welcomeAnnRef, {
+      await setDoc(welcomeAnnRef, sanitizeData({
         id: welcomeAnnRef.id,
         condoId: condoRef.id,
         title: 'Bem-vindo ao CondoPro!',
@@ -6884,7 +7270,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         priority: 'HIGH',
         createdAt: new Date().toISOString(),
         authorName: user.name
-      });
+      }));
 
       // Pré-popular tarefas de manutenção iniciais
       const initialTasks = [
@@ -6895,7 +7281,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
 
       for (const task of initialTasks) {
         const taskRef = doc(collection(db, 'condos', condoRef.id, 'maintenance'));
-        await setDoc(taskRef, {
+        await setDoc(taskRef, sanitizeData({
           id: taskRef.id,
           condoId: condoRef.id,
           title: task.title,
@@ -6904,12 +7290,12 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
           frequency: task.frequency,
           status: 'PENDING',
           nextDueDate: format(addDays(new Date(), 15), 'yyyy-MM-dd')
-        });
+        }));
       }
 
       // Pré-popular primeira Assembleia
       const assemblyRef = doc(collection(db, 'condos', condoRef.id, 'assemblies'));
-      await setDoc(assemblyRef, {
+      await setDoc(assemblyRef, sanitizeData({
         id: assemblyRef.id,
         condoId: condoRef.id,
         title: 'Assembleia de Instalação',
@@ -6926,7 +7312,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
           }
         ],
         createdAt: new Date().toISOString()
-      });
+      }));
 
       await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Slug: ${condoData.slug}`, 'global');
       setShowAddCondoModal(false);
@@ -6972,15 +7358,15 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
-        condoId: newUser.condoId,
+        condoId: newUser.condoId || undefined,
         cpf: newUser.cpf,
         login: newUser.login,
         createdAt: new Date().toISOString()
       };
-      await setDoc(userRef, userData);
+      await setDoc(userRef, sanitizeData(userData));
       await createAuditLog('Cadastrou novo usuário', 'CONDO', userRef.id, `Usuário: ${newUser.name}, Role: ${newUser.role}`, 'global');
       setShowAddUserModal(false);
-      setNewUser({ name: '', email: '', role: 'CONDO_ADMIN', condoId: '', cpf: '', login: '' });
+      setNewUser({ name: '', email: '', role: 'CONDO_ADMIN', condoId: '', cpf: '000.000.000-00', login: '' });
     } catch (err) {
       console.error("Erro ao adicionar usuário:", err);
       handleFirestoreError(err, OperationType.CREATE, 'users');
@@ -6994,10 +7380,10 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     }
     try {
       const userRef = doc(db, 'users', selectedUserForEdit.id);
-      await setDoc(userRef, {
+      await setDoc(userRef, sanitizeData({
         ...selectedUserForEdit,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      }), { merge: true });
       
       await createAuditLog('Atualizou usuário', 'CONDO', selectedUserForEdit.id, `Usuário: ${selectedUserForEdit.name}, Role: ${selectedUserForEdit.role}`, 'global');
       setShowEditUserModal(false);
@@ -7071,6 +7457,8 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
             appSettings={appSettings} 
             createAuditLog={createAuditLog} 
             plans={plans}
+            onSendEmail={onSendEmail}
+            onSendWhatsApp={onSendWhatsApp}
           />
         </div>
       </div>
@@ -7512,7 +7900,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                           type="text" 
                           placeholder="000.000.000-00"
                           value={profileData.cpf}
-                          onChange={(e) => setProfileData({...profileData, cpf: e.target.value})}
+                          onChange={(e) => setProfileData({...profileData, cpf: formatCPF(e.target.value)})}
                           className="w-full bg-slate-50 border-none rounded-2xl p-4 text-slate-800 font-bold focus:ring-2 focus:ring-orange-500 transition-all"
                         />
                       </div>
@@ -8074,7 +8462,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                     <input 
                       type="text" 
                       value={newUser.cpf}
-                      onChange={(e) => setNewUser({...newUser, cpf: e.target.value})}
+                      onChange={(e) => setNewUser({...newUser, cpf: formatCPF(e.target.value)})}
                       placeholder="000.000.000-00" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
@@ -8174,7 +8562,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                     <input 
                       type="text" 
                       value={selectedUserForEdit.cpf || ''}
-                      onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, cpf: e.target.value})}
+                      onChange={(e) => setSelectedUserForEdit({...selectedUserForEdit, cpf: formatCPF(e.target.value)})}
                       placeholder="000.000.000-00" 
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
@@ -8743,6 +9131,39 @@ export default function App() {
     }
   };
 
+  const sendWhatsApp = async (to: string, message: string) => {
+    try {
+      const cleanPhone = to.replace(/\D/g, '');
+      const response = await fetch('/api/notify/whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: cleanPhone, message }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Erro ao enviar WhatsApp');
+      return true;
+    } catch (error) {
+      console.error('Erro ao disparar WhatsApp:', error);
+      return false;
+    }
+  };
+
+  const sendEmail = async (to: string, subject: string, body: string) => {
+    try {
+      const response = await fetch('/api/notify/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Erro ao enviar e-mail');
+      return true;
+    } catch (error) {
+      console.error('Erro ao disparar e-mail:', error);
+      return false;
+    }
+  };
+
   const handleResetPassword = async (email: string) => {
     if (!email) {
       alert("Por favor, informe seu e-mail.");
@@ -8897,9 +9318,26 @@ export default function App() {
         
         return user ? (
           user.role === 'SUPER_ADMIN' ? (
-            <SuperAdminDashboard user={user} onLogout={handleLogout} appSettings={appSettings} onUpdateSettings={handleUpdateSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
+            <SuperAdminDashboard 
+              user={user} 
+              onLogout={handleLogout} 
+              appSettings={appSettings} 
+              onUpdateSettings={handleUpdateSettings} 
+              createAuditLog={createAuditLog} 
+              plans={dynamicPlans} 
+              onSendEmail={sendEmail}
+              onSendWhatsApp={sendWhatsApp}
+            />
           ) : (
-            <Dashboard user={user} onLogout={handleLogout} appSettings={appSettings} createAuditLog={createAuditLog} plans={dynamicPlans} />
+            <Dashboard 
+              user={user} 
+              onLogout={handleLogout} 
+              appSettings={appSettings} 
+              createAuditLog={createAuditLog} 
+              plans={dynamicPlans} 
+              onSendEmail={sendEmail}
+              onSendWhatsApp={sendWhatsApp}
+            />
           )
         ) : (
           <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />
