@@ -10,7 +10,7 @@ import {
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
   Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database, RefreshCw, Save,
-  Truck, Tag, Car
+  Truck, Tag, Car, Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -7535,6 +7535,279 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
             </motion.div>
           </div>
         )}
+
+        {/* Add Reservation Modal */}
+        {showAddReservationModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddReservationModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Reserva</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Área Comum</label>
+                  <select 
+                    value={newReservation.areaId} 
+                    onChange={(e) => {
+                      const opt = e.target.options[e.target.selectedIndex];
+                      setNewReservation({...newReservation, areaId: e.target.value, areaName: opt.text});
+                    }}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="party-hall">Salão de Festas</option>
+                    <option value="bbq-a">Churrasqueira A</option>
+                    <option value="bbq-b">Churrasqueira B</option>
+                    <option value="gym">Academia</option>
+                    <option value="pool">Piscina</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
+                  <input type="date" value={newReservation.date} onChange={(e) => setNewReservation({...newReservation, date: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Início</label>
+                    <input type="time" value={newReservation.startTime} onChange={(e) => setNewReservation({...newReservation, startTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fim</label>
+                    <input type="time" value={newReservation.endTime} onChange={(e) => setNewReservation({...newReservation, endTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                </div>
+                <button onClick={handleCreateReservation} className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20">Solicitar Reserva</button>
+                <button onClick={() => setShowAddReservationModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Assembly Modal */}
+        {showAddAssemblyModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddAssemblyModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Assembleia Virtual</h3>
+              <div className="space-y-4 overflow-y-auto pr-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
+                  <input type="text" value={newAssembly.title} onChange={(e) => setNewAssembly({...newAssembly, title: e.target.value})} placeholder="Ex: Assembleia Geral Ordinária 2024" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
+                  <textarea value={newAssembly.description} onChange={(e) => setNewAssembly({...newAssembly, description: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" placeholder="Detalhes sobre os tópicos de discussão..." />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Início</label>
+                    <input type="date" value={newAssembly.startDate} onChange={(e) => setNewAssembly({...newAssembly, startDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Fim</label>
+                    <input type="date" value={newAssembly.endDate} onChange={(e) => setNewAssembly({...newAssembly, endDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Itens de Pauta (Tópicos para Votação)</label>
+                  <button 
+                    onClick={() => {
+                      const items = [...(newAssembly.items || [])];
+                      items.push({ id: Math.random().toString(36).substr(2, 9), question: '', options: ['Sim', 'Não', 'Abstenção'], votes: {} });
+                      setNewAssembly({...newAssembly, items});
+                    }}
+                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-400"
+                  >
+                    + Adicionar Tópico de Votação
+                  </button>
+                  <div className="space-y-3 mt-4">
+                    {(newAssembly.items || []).map((item, idx) => (
+                      <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <input 
+                          type="text" 
+                          value={item.question} 
+                          onChange={(e) => {
+                            const next = [...newAssembly.items];
+                            next[idx].question = e.target.value;
+                            setNewAssembly({...newAssembly, items: next});
+                          }}
+                          placeholder="Digite a pergunta ou pauta..." 
+                          className="w-full bg-transparent border-b border-slate-200 py-2 text-sm font-bold focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white sticky bottom-0">
+                <button onClick={handleCreateAssembly} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20">Publicar Assembleia</button>
+                <button onClick={() => setShowAddAssemblyModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Maintenance Modal */}
+        {showAddMaintenanceModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMaintenanceModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Tarefa de Manutenção</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
+                  <input type="text" value={newMaintenanceTask.title} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, title: e.target.value})} placeholder="Ex: Revisão Preventiva Elevadores" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
+                  <select value={newMaintenanceTask.category} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, category: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="ELEVATOR">Elevadores</option>
+                    <option value="GATE">Portões</option>
+                    <option value="PUMP">Bombas d'Água</option>
+                    <option value="ELECTRICAL">Elétrica</option>
+                    <option value="OTHER">Outros</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Frequência</label>
+                  <select value={newMaintenanceTask.frequency} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, frequency: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="WEEKLY">Semanal</option>
+                    <option value="MONTHLY">Mensal</option>
+                    <option value="QUARTERLY">Trimestral</option>
+                    <option value="YEARLY">Anual</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Próxima Data</label>
+                  <input type="date" value={newMaintenanceTask.nextDueDate} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, nextDueDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <button onClick={handleCreateMaintenanceTask} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-amber-600/20">Registrar Manutenção</button>
+                <button onClick={() => setShowAddMaintenanceModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Infraction Modal */}
+        {showAddInfractionModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddInfractionModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Multa / Advertência</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Morador / Unidade</label>
+                  <select value={newInfraction.residentId} onChange={(e) => setNewInfraction({...newInfraction, residentId: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="">Selecione o Infrator...</option>
+                    {residents.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} - Un {r.unit}{r.block ? ` Bl ${r.block}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setNewInfraction({...newInfraction, type: 'WARNING'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'WARNING' ? 'bg-amber-100 text-amber-600 border-2 border-amber-500' : 'bg-gray-50 border border-gray-200'}`}>Advertência</button>
+                    <button onClick={() => setNewInfraction({...newInfraction, type: 'FINE'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'FINE' ? 'bg-red-100 text-red-600 border-2 border-red-500' : 'bg-gray-50 border border-gray-200'}`}>Multa</button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição da Ocorrência</label>
+                  <textarea value={newInfraction.description} onChange={(e) => setNewInfraction({...newInfraction, description: e.target.value})} placeholder="Relate o ocorrido..." className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
+                </div>
+                {newInfraction.type === 'FINE' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Valor da Multa (R$)</label>
+                    <input type="number" value={newInfraction.value} onChange={(e) => setNewInfraction({...newInfraction, value: Number(e.target.value)})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 font-mono" />
+                  </div>
+                )}
+                <button onClick={handleCreateInfraction} className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-red-600/20">Confirmar Penalidade</button>
+                <button onClick={() => setShowAddInfractionModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Minute Modal with AI Voice-to-Text */}
+        {showAddMinuteModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMinuteModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-xl rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Novo Documento / Ata</h3>
+              <div className="space-y-4 overflow-y-auto pr-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título do Documento</label>
+                  <input type="text" value={newMinute.title} onChange={(e) => setNewMinute({...newMinute, title: e.target.value})} placeholder="Ex: Ata de Reunião de Condomínio 10/05" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conteúdo / Transcrição</label>
+                    <button 
+                      onClick={() => {
+                        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                        if (!SpeechRecognition) {
+                          alert("Seu navegador não suporta reconhecimento de voz.");
+                          return;
+                        }
+                        const recognition = new SpeechRecognition();
+                        recognition.lang = 'pt-BR';
+                        recognition.interimResults = false;
+                        recognition.maxAlternatives = 1;
+
+                        recognition.onstart = () => setIsTranscribing(true);
+                        recognition.onend = () => setIsTranscribing(false);
+                        recognition.onresult = (event: any) => {
+                          const transcript = event.results[0][0].transcript;
+                          setNewMinute(prev => ({...prev, content: (prev.content || '') + (prev.content ? '\n' : '') + transcript}));
+                        };
+                        recognition.onerror = (event: any) => {
+                          console.error('Speech recognition error:', event.error);
+                          setIsTranscribing(false);
+                        };
+                        recognition.start();
+                      }}
+                      disabled={isTranscribing}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${isTranscribing ? 'bg-red-100 text-red-600 animate-pulse border border-red-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'}`}
+                    >
+                      <Mic className="w-3 h-3" /> {isTranscribing ? 'Ouvindo...' : 'Gravar Áudio (Voz em Texto)'}
+                    </button>
+                  </div>
+                  <textarea 
+                    value={newMinute.content} 
+                    onChange={(e) => setNewMinute({...newMinute, content: e.target.value})} 
+                    className="w-full p-5 bg-gray-50 rounded-2xl border border-gray-200 h-64 text-sm leading-relaxed"
+                    placeholder="Comece a digitar ou use o botão de gravação para transcrever..." 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Arquivo PDF (Upload Direto)</label>
+                  <label className="block p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-gray-50 hover:bg-slate-100 cursor-pointer transition-all">
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {newMinute.fileUrl ? "Arquivo Selecionado" : "Clique para fazer upload do PDF"}
+                    </p>
+                    {newMinute.fileUrl && <p className="text-[10px] text-blue-600 mt-1 truncate max-w-xs mx-auto">Arquivo pronto para salvar</p>}
+                    <input 
+                      type="file" 
+                      accept=".pdf" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setNewMinute(prev => ({...prev, fileUrl: `file://${file.name}`}));
+                          alert(`Arquivo ${file.name} selecionado.`);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white">
+                <button onClick={handleCreateMinute} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20">Salvar Documento</button>
+                <button onClick={() => setShowAddMinuteModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -8934,279 +9207,6 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                 >
                   Cancelar
                 </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Reservation Modal */}
-        {showAddReservationModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddReservationModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
-              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Reserva</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Área Comum</label>
-                  <select 
-                    value={newReservation.areaId} 
-                    onChange={(e) => {
-                      const opt = e.target.options[e.target.selectedIndex];
-                      setNewReservation({...newReservation, areaId: e.target.value, areaName: opt.text});
-                    }}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200"
-                  >
-                    <option value="">Selecione...</option>
-                    <option value="party-hall">Salão de Festas</option>
-                    <option value="bbq-a">Churrasqueira A</option>
-                    <option value="bbq-b">Churrasqueira B</option>
-                    <option value="gym">Academia</option>
-                    <option value="pool">Piscina</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
-                  <input type="date" value={newReservation.date} onChange={(e) => setNewReservation({...newReservation, date: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Início</label>
-                    <input type="time" value={newReservation.startTime} onChange={(e) => setNewReservation({...newReservation, startTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fim</label>
-                    <input type="time" value={newReservation.endTime} onChange={(e) => setNewReservation({...newReservation, endTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                  </div>
-                </div>
-                <button onClick={handleCreateReservation} className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20">Solicitar Reserva</button>
-                <button onClick={() => setShowAddReservationModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Assembly Modal */}
-        {showAddAssemblyModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddAssemblyModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
-              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Assembleia Virtual</h3>
-              <div className="space-y-4 overflow-y-auto pr-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
-                  <input type="text" value={newAssembly.title} onChange={(e) => setNewAssembly({...newAssembly, title: e.target.value})} placeholder="Ex: Assembleia Geral Ordinária 2024" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
-                  <textarea value={newAssembly.description} onChange={(e) => setNewAssembly({...newAssembly, description: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" placeholder="Detalhes sobre os tópicos de discussão..." />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Início</label>
-                    <input type="date" value={newAssembly.startDate} onChange={(e) => setNewAssembly({...newAssembly, startDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Fim</label>
-                    <input type="date" value={newAssembly.endDate} onChange={(e) => setNewAssembly({...newAssembly, endDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Itens de Pauta (Tópicos para Votação)</label>
-                  <button 
-                    onClick={() => {
-                      const items = [...(newAssembly.items || [])];
-                      items.push({ id: Math.random().toString(36).substr(2, 9), question: '', options: ['Sim', 'Não', 'Abstenção'], votes: {} });
-                      setNewAssembly({...newAssembly, items});
-                    }}
-                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-400"
-                  >
-                    + Adicionar Tópico de Votação
-                  </button>
-                  <div className="space-y-3 mt-4">
-                    {(newAssembly.items || []).map((item, idx) => (
-                      <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                        <input 
-                          type="text" 
-                          value={item.question} 
-                          onChange={(e) => {
-                            const next = [...newAssembly.items];
-                            next[idx].question = e.target.value;
-                            setNewAssembly({...newAssembly, items: next});
-                          }}
-                          placeholder="Digite a pergunta ou pauta..." 
-                          className="w-full bg-transparent border-b border-slate-200 py-2 text-sm font-bold focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white sticky bottom-0">
-                <button onClick={handleCreateAssembly} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20">Publicar Assembleia</button>
-                <button onClick={() => setShowAddAssemblyModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Maintenance Modal */}
-        {showAddMaintenanceModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMaintenanceModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
-              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Tarefa de Manutenção</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
-                  <input type="text" value={newMaintenanceTask.title} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, title: e.target.value})} placeholder="Ex: Revisão Preventiva Elevadores" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
-                  <select value={newMaintenanceTask.category} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, category: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
-                    <option value="ELEVATOR">Elevadores</option>
-                    <option value="GATE">Portões</option>
-                    <option value="PUMP">Bombas d'Água</option>
-                    <option value="ELECTRICAL">Elétrica</option>
-                    <option value="OTHER">Outros</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Frequência</label>
-                  <select value={newMaintenanceTask.frequency} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, frequency: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
-                    <option value="WEEKLY">Semanal</option>
-                    <option value="MONTHLY">Mensal</option>
-                    <option value="QUARTERLY">Trimestral</option>
-                    <option value="YEARLY">Anual</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Próxima Data</label>
-                  <input type="date" value={newMaintenanceTask.nextDueDate} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, nextDueDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
-                </div>
-                <button onClick={handleCreateMaintenanceTask} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-amber-600/20">Registrar Manutenção</button>
-                <button onClick={() => setShowAddMaintenanceModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Infraction Modal */}
-        {showAddInfractionModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddInfractionModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
-              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Multa / Advertência</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Morador / Unidade</label>
-                  <select value={newInfraction.residentId} onChange={(e) => setNewInfraction({...newInfraction, residentId: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
-                    <option value="">Selecione o Infrator...</option>
-                    {residents.map(r => (
-                      <option key={r.id} value={r.id}>{r.name} - Un {r.unit}{r.block ? ` Bl ${r.block}` : ''}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => setNewInfraction({...newInfraction, type: 'WARNING'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'WARNING' ? 'bg-amber-100 text-amber-600 border-2 border-amber-500' : 'bg-gray-50 border border-gray-200'}`}>Advertência</button>
-                    <button onClick={() => setNewInfraction({...newInfraction, type: 'FINE'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'FINE' ? 'bg-red-100 text-red-600 border-2 border-red-500' : 'bg-gray-50 border border-gray-200'}`}>Multa</button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição da Ocorrência</label>
-                  <textarea value={newInfraction.description} onChange={(e) => setNewInfraction({...newInfraction, description: e.target.value})} placeholder="Relate o ocorrido..." className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
-                </div>
-                {newInfraction.type === 'FINE' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Valor da Multa (R$)</label>
-                    <input type="number" value={newInfraction.value} onChange={(e) => setNewInfraction({...newInfraction, value: Number(e.target.value)})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 font-mono" />
-                  </div>
-                )}
-                <button onClick={handleCreateInfraction} className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-red-600/20">Confirmar Penalidade</button>
-                <button onClick={() => setShowAddInfractionModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Minute Modal with AI Voice-to-Text */}
-        {showAddMinuteModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMinuteModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
-              <h3 className="text-xl font-bold text-slate-800 mb-6">Novo Documento / Ata</h3>
-              <div className="space-y-4 overflow-y-auto pr-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título do Documento</label>
-                  <input type="text" value={newMinute.title} onChange={(e) => setNewMinute({...newMinute, title: e.target.value})} placeholder="Ex: Ata de Reunião de Condomínio 10/05" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20" />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conteúdo / Transcrição</label>
-                    <button 
-                      onClick={() => {
-                        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-                        if (!SpeechRecognition) {
-                          alert("Seu navegador não suporta reconhecimento de voz.");
-                          return;
-                        }
-                        const recognition = new SpeechRecognition();
-                        recognition.lang = 'pt-BR';
-                        recognition.interimResults = false;
-                        recognition.maxAlternatives = 1;
-
-                        recognition.onstart = () => setIsTranscribing(true);
-                        recognition.onend = () => setIsTranscribing(false);
-                        recognition.onresult = (event: any) => {
-                          const transcript = event.results[0][0].transcript;
-                          setNewMinute(prev => ({...prev, content: (prev.content || '') + (prev.content ? '\n' : '') + transcript}));
-                        };
-                        recognition.onerror = (event: any) => {
-                          console.error('Speech recognition error:', event.error);
-                          setIsTranscribing(false);
-                        };
-                        recognition.start();
-                      }}
-                      disabled={isTranscribing}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${isTranscribing ? 'bg-red-100 text-red-600 animate-pulse border border-red-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'}`}
-                    >
-                      <Mic className="w-3 h-3" /> {isTranscribing ? 'Ouvindo...' : 'Gravar Áudio (Voz em Texto)'}
-                    </button>
-                  </div>
-                  <textarea 
-                    value={newMinute.content} 
-                    onChange={(e) => setNewMinute({...newMinute, content: e.target.value})} 
-                    className="w-full p-5 bg-gray-50 rounded-2xl border border-gray-200 h-64 text-sm leading-relaxed"
-                    placeholder="Comece a digitar ou use o botão de gravação para transcrever..." 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Arquivo PDF (Upload Direto)</label>
-                  <label className="block p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-gray-50 hover:bg-slate-100 cursor-pointer transition-all">
-                    <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      {newMinute.fileUrl ? "Arquivo Selecionado" : "Clique para fazer upload do PDF"}
-                    </p>
-                    {newMinute.fileUrl && <p className="text-[10px] text-blue-600 mt-1 truncate max-w-xs mx-auto">Arquivo pronto para salvar</p>}
-                    <input 
-                      type="file" 
-                      accept=".pdf" 
-                      className="hidden" 
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setNewMinute(prev => ({...prev, fileUrl: `file://${file.name}`}));
-                          alert(`Arquivo ${file.name} selecionado.`);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white">
-                <button onClick={handleCreateMinute} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20">Salvar Documento</button>
-                <button onClick={() => setShowAddMinuteModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
               </div>
             </motion.div>
           </div>
