@@ -283,9 +283,8 @@ service cloud.firestore {
     }
 
     function isValidInfraction(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'residentName', 'unit', 'type', 'description', 'value', 'status', 'createdAt']) &&
-             data.id is string &&
-             data.condoId is string &&
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
              data.residentId is string &&
              data.residentName is string &&
              data.unit is string &&
@@ -297,13 +296,59 @@ service cloud.firestore {
     }
 
     function isValidMinute(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'assemblyId', 'title', 'content', 'fileUrl', 'createdAt']) &&
-             data.id is string &&
-             data.condoId is string &&
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
              (!('assemblyId' in data) || data.assemblyId is string) &&
              data.title is string && data.title.size() > 0 &&
              data.content is string &&
              (!('fileUrl' in data) || data.fileUrl is string) &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidAnnouncement(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
+             data.authorName is string &&
+             data.title is string && data.title.size() > 0 &&
+             data.content is string && data.content.size() > 0 &&
+             data.category in ['GENERAL', 'MAINTENANCE', 'SECURITY', 'EVENT'] &&
+             data.priority in ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidCashFlowEntry(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'type', 'category', 'amount', 'description', 'date', 'createdAt']) &&
+             data.id is string &&
+             data.condoId is string &&
+             data.type in ['REVENUE', 'EXPENSE'] &&
+             data.category is string &&
+             data.amount is number &&
+             data.description is string &&
+             data.date is string &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidReservation(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
+             data.residentId is string &&
+             data.areaId is string &&
+             data.status in ['PENDING', 'APPROVED', 'DENIED', 'CANCELLED'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidMovingRequest(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
+             data.residentId is string &&
+             data.status in ['PENDING', 'APPROVED', 'DENIED'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidParkingSlot(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
+             data.status in ['AVAILABLE', 'OCCUPIED', 'RESERVED'] &&
              isValidDateString(data.createdAt);
     }
 
@@ -457,6 +502,49 @@ service cloud.firestore {
       allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
       allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMinute(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/announcements/{announcementId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidAnnouncement(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/cashFlow/{entryId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidCashFlowEntry(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/reservations/{reservationId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && isValidReservation(request.resource.data);
+      allow update: if (isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid)) && isValidReservation(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/movingRequests/{requestId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && (resource == null || resource.data.residentId == request.auth.uid));
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && isValidMovingRequest(request.resource.data);
+      allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMovingRequest(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/parkingSlots/{slotId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidParkingSlot(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/accessTags/{tagId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId));
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/typing/{userId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow write: if isOwner(userId);
     }
 
     match /condos/{condoId}/complaints/{complaintId} {

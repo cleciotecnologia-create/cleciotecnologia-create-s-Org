@@ -21,27 +21,35 @@
 }
 
 @layer base {
+  html, body, #root {
+    @apply h-full overflow-hidden;
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans;
   }
 
-  /* Custom Scrollbar */
+  /* Custom Scrollbar - High Contrast */
   ::-webkit-scrollbar {
-    @apply w-1.5 h-1.5;
+    @apply w-2.5 h-2.5;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-transparent;
+    @apply bg-slate-200/50 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+    @apply bg-slate-400 rounded-full border-2 border-slate-50 hover:bg-slate-500 transition-colors cursor-pointer;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-blue-500;
   }
 
   /* For Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 transparent;
+    scrollbar-color: #94a3b8 transparent;
   }
 }
 

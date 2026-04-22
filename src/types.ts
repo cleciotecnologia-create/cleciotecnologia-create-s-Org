@@ -89,6 +89,8 @@ export interface Visitor {
   type: 'VISITOR' | 'SERVICE' | 'DELIVERY';
   status: 'PENDING' | 'AUTHORIZED' | 'EXPIRED';
   validUntil: string;
+  carPlate?: string;
+  carModel?: string;
   qrCode?: string;
 }
 

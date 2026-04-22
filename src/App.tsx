@@ -105,11 +105,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const sanitizeData = (data: any) => {
   if (!data || typeof data !== 'object') return data;
   return Object.fromEntries(
-    Object.entries(data).filter(([_, v]) => v !== undefined)
+    Object.entries(data).filter(([_, v]) => v !== undefined && v !== null && v !== "")
   );
 };
 
 const formatCPF = (value: string) => {
+  if (!value) return '';
   const digits = value.replace(/\D/g, '').slice(0, 11);
   return digits
     .replace(/(\d{3})(\d)/, '$1.$2')
@@ -118,14 +119,15 @@ const formatCPF = (value: string) => {
 };
 
 const formatPhone = (value: string) => {
+  if (!value) return '';
   const digits = value.replace(/\D/g, '').slice(0, 11);
   if (digits.length <= 10) {
     return digits
-      .replace(/(\d{2})(\d)/, '($1)$2')
+      .replace(/(\d{2})(\d)/, '($1) $2')
       .replace(/(\d{4})(\d)/, '$1-$2');
   }
   return digits
-    .replace(/(\d{2})(\d)/, '($1)$2')
+    .replace(/(\d{2})(\d)/, '($1) $2')
     .replace(/(\d{5})(\d)/, '$1-$2');
 };
 
@@ -556,14 +558,20 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [selectedResidentForEdit, setSelectedResidentForEdit] = useState<Resident | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const isSubmitting = useRef(false);
+  const [residentFilter, setResidentFilter] = useState({
+    name: '',
+    unit: '',
+    block: '',
+    tower: ''
+  });
   const [newResident, setNewResident] = useState({ 
     name: '', 
     email: '', 
     unit: '', 
     block: '',
     tower: '',
-    phone: '(00)00000-0000', 
-    cpf: '000.000.000-00', 
+    phone: '', 
+    cpf: '', 
     login: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     isOwner: false,
@@ -573,7 +581,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [newVisitor, setNewVisitor] = useState({
     name: '',
     type: 'VISITOR' as Visitor['type'],
-    validUntil: ''
+    validUntil: '',
+    carPlate: '',
+    carModel: ''
   });
   const [visitorSuccess, setVisitorSuccess] = useState<Visitor | null>(null);
   const [showFaceIDModal, setShowFaceIDModal] = useState(false);
@@ -582,6 +592,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
   const [showAddAnnouncementModal, setShowAddAnnouncementModal] = useState(false);
   const [showAddPackageModal, setShowAddPackageModal] = useState(false);
+  const [showAddReservationModal, setShowAddReservationModal] = useState(false);
+  const [showAddAssemblyModal, setShowAddAssemblyModal] = useState(false);
+  const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
+  const [showAddInfractionModal, setShowAddInfractionModal] = useState(false);
+  const [showAddMinuteModal, setShowAddMinuteModal] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeMenu === 'chat') {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, activeMenu]);
   const [newPackage, setNewPackage] = useState({ 
     residentId: '', 
     description: '', 
@@ -605,6 +628,40 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     title: '',
     description: '',
     category: 'OTHER' as Occurrence['category']
+  });
+  const [newReservation, setNewReservation] = useState<Partial<Reservation>>({
+    areaId: '',
+    areaName: '',
+    date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    startTime: '08:00',
+    endTime: '10:00'
+  });
+  const [newAssembly, setNewAssembly] = useState<Partial<Assembly>>({
+    title: '',
+    description: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: addDays(new Date(), 7).toISOString().split('T')[0],
+    status: 'ACTIVE',
+    items: []
+  });
+  const [newMaintenanceTask, setNewMaintenanceTask] = useState<Partial<MaintenanceTask>>({
+    title: '',
+    description: '',
+    category: 'OTHER',
+    frequency: 'MONTHLY',
+    nextDueDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+    status: 'PENDING'
+  });
+  const [newInfraction, setNewInfraction] = useState<Partial<Infraction>>({
+    residentId: '',
+    type: 'WARNING',
+    description: '',
+    value: 0
+  });
+  const [newMinute, setNewMinute] = useState<Partial<Minute>>({
+    title: '',
+    content: '',
+    assemblyId: ''
   });
 
   const [movingRequests, setMovingRequests] = useState<MovingRequest[]>([]);
@@ -641,6 +698,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     startTime: '08:00',
     endTime: '18:00'
   });
+
+  const filteredResidents = useMemo(() => {
+    return residents.filter(res => {
+      const nameMatch = res.name.toLowerCase().includes(residentFilter.name.toLowerCase());
+      const unitMatch = !residentFilter.unit || res.unit?.toLowerCase().includes(residentFilter.unit.toLowerCase());
+      const blockMatch = !residentFilter.block || res.block?.toLowerCase().includes(residentFilter.block.toLowerCase());
+      const towerMatch = !residentFilter.tower || res.tower?.toLowerCase().includes(residentFilter.tower.toLowerCase());
+      return nameMatch && unitMatch && blockMatch && towerMatch;
+    });
+  }, [residents, residentFilter]);
 
   useEffect(() => {
     if (user && user.role === 'RESIDENT') {
@@ -778,6 +845,105 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
     if (!silent) setIsLoading(false);
   };
+
+  const handleNotifyOverdueInvoices = async () => {
+    const overdueInvoices = invoices.filter(i => i.status === 'PENDING' || i.status === 'OVERDUE');
+    if (overdueInvoices.length === 0) {
+      alert("Não há boletos pendentes ou atrasados para notificar.");
+      return;
+    }
+
+    // Agrupar boletos por morador para evitar SPAM
+    const invoicesByResident: { [residentId: string]: Invoice[] } = {};
+    overdueInvoices.forEach(inv => {
+      if (!invoicesByResident[inv.residentId]) {
+        invoicesByResident[inv.residentId] = [];
+      }
+      invoicesByResident[inv.residentId].push(inv);
+    });
+
+    const residentIds = Object.keys(invoicesByResident);
+
+    if (!window.confirm(`Deseja enviar notificações (E-mail e WhatsApp) para ${residentIds.length} moradores com pendências financeiras?`)) return;
+
+    setIsLoading(true);
+    let successCount = 0;
+
+    try {
+      for (const residentId of residentIds) {
+        const resident = residents.find(r => r.id === residentId);
+        if (!resident) continue;
+
+        const residentInvoices = invoicesByResident[residentId];
+        const totalAmount = residentInvoices.reduce((acc, cur) => acc + cur.amount, 0);
+
+        const subject = `⚠️ AVISO DE PENDÊNCIA: ${condo?.name || 'Condomínio'}`;
+        
+        let invoicesDetailsHtml = '';
+        residentInvoices.forEach(inv => {
+          invoicesDetailsHtml += `
+            <div style="margin-bottom: 15px; padding: 15px; border: 1px solid #f1f5f9; border-radius: 8px; background: white;">
+              <p style="margin: 0; font-weight: bold; color: #1e293b;">${inv.description}</p>
+              <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                <span style="font-size: 12px; color: #64748b;">Vencimento: ${new Date(inv.dueDate).toLocaleDateString()}</span>
+                <span style="font-size: 14px; font-weight: 800; color: #ef4444;">R$ ${inv.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          `;
+        });
+
+        const emailBody = `
+          <div style="font-family: sans-serif; padding: 30px; color: #333; border: 1px solid #e2e8f0; border-radius: 24px; max-width: 600px; margin: auto; background-color: #ffffff;">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h2 style="color: #ef4444; margin: 0; letter-spacing: -0.02em;">Aviso de Pendência</h2>
+              <p style="color: #64748b; font-size: 14px; margin: 5px 0 0 0; font-weight: bold; text-transform: uppercase;">${condo?.name || 'CONDO PRO'}</p>
+            </div>
+            
+            <p style="font-size: 16px; line-height: 1.5;">Olá, <strong>${resident.name}</strong>!</p>
+            <p style="font-size: 16px; line-height: 1.5; color: #475569;">Verificamos que sua unidade possui os seguintes títulos em aberto:</p>
+            
+            <div style="background: #f8fafc; padding: 20px; border-radius: 16px; margin: 25px 0; border: 1px solid #f1f5f9;">
+              ${invoicesDetailsHtml}
+              <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 14px; font-weight: bold; color: #64748b; text-transform: uppercase;">Total Acumulado:</span>
+                <span style="font-size: 24px; font-weight: 900; color: #1e293b;">R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+            
+            <p style="font-size: 14px; line-height: 1.5; color: #64748b;">Para regularizar sua situação e evitar multas contratuais, por favor realize o pagamento através do nosso aplicativo oficial:</p>
+            
+            <div style="text-align: center; margin-top: 40px;">
+              <a href="${window.location.origin}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 18px 40px; text-decoration: none; border-radius: 16px; font-weight: 800; font-size: 16px; box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4);">
+                Pagar Agora no CondoPro
+              </a>
+            </div>
+
+            <div style="margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 25px; text-align: center;">
+              <p style="font-size: 11px; color: #94a3b8; margin: 0; text-transform: uppercase; letter-spacing: 0.1em;">Mensagem automática gerada pelo sistema de gestão condominial.</p>
+            </div>
+          </div>
+        `;
+
+        const whatsappMessage = `Olá ${resident.name}! Constam ${residentInvoices.length} boletos em aberto no seu nome, totalizando R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. Por favor, acesse o App CondoPro para regularizar e evitar multas: ${window.location.origin}`;
+
+        await Promise.all([
+          onSendEmail(resident.email, subject, emailBody),
+          onSendWhatsApp(resident.phone, whatsappMessage)
+        ]);
+        
+        successCount++;
+      }
+
+      createAuditLog('Notificou inadimplentes em massa', 'INVOICE', undefined, `Notificações enviadas para ${successCount} moradores.`);
+      alert(`Sucesso! Notificações enviadas para ${successCount} moradores via E-mail e WhatsApp.`);
+    } catch (err) {
+      console.error("Erro ao notificar inadimplentes:", err);
+      alert("Ocorreu um erro ao enviar as notificações.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   const handleAddPoints = async (residentId: string, amount: number, reason: string) => {
     if (!user.condoId) return;
@@ -1246,25 +1412,27 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       const normalizedCPF = newResident.cpf?.trim();
       const normalizedLogin = newResident.login?.trim().toLowerCase();
 
-      // Check for duplicates in the same housing unit (Block + Tower + Unit)
-      const isDuplicate = residents.some(r => {
+      // Check for duplicates in the same housing unit as requested
+      const duplicateResident = residents.find(r => {
         const sameAddress = 
           (r.unit?.trim() === normalizedUnit) &&
           (r.block?.trim() === normalizedBlock) &&
           (r.tower?.trim() === normalizedTower);
-          
+
         if (!sameAddress) return false;
 
-        // Within the same unit, we check if identity matches
-        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00';
-        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail;
-        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin;
+        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00' && normalizedCPF !== '';
+        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail && normalizedEmail !== '';
+        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin && normalizedLogin !== '';
 
         return sameCPF || sameEmail || sameLogin;
       });
 
-      if (isDuplicate) {
-        alert("Erro: Já existe um morador cadastrado com este CPF, E-mail ou Login para este exato bloco e unidade.");
+      if (duplicateResident) {
+        const field = duplicateResident.cpf?.trim() === normalizedCPF ? 'CPF' : 
+                     duplicateResident.email?.trim().toLowerCase() === normalizedEmail ? 'E-mail' : 'Login';
+        
+        alert(`Erro: Já existe um morador cadastrado com este ${field} nesta Unidade/Bloco.`);
         setIsLoading(false);
         isSubmitting.current = false;
         return;
@@ -1311,7 +1479,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
       alert("Morador cadastrado com sucesso!");
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '(00)00000-0000', cpf: '000.000.000-00', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
+      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
     } catch (err: any) {
       console.error("Erro ao adicionar morador:", err);
       let errorMessage = "Ocorreu um erro ao salvar o morador.";
@@ -1345,10 +1513,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       const normalizedCPF = selectedResidentForEdit.cpf?.trim();
       const normalizedLogin = selectedResidentForEdit.login?.trim().toLowerCase();
 
-      // Check for duplicates in the same unit (excluding the resident being edited)
-      const isDuplicate = residents.some(r => {
+      // Check for duplicates in the same housing unit as requested
+      const duplicateResident = residents.find(r => {
         if (r.id === selectedResidentForEdit.id) return false;
-        
+
         const sameAddress = 
           (r.unit?.trim() === normalizedUnit) &&
           (r.block?.trim() === normalizedBlock) &&
@@ -1356,15 +1524,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
         if (!sameAddress) return false;
 
-        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00';
-        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail;
-        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin;
+        const sameCPF = normalizedCPF && r.cpf?.trim() === normalizedCPF && normalizedCPF !== '000.000.000-00' && normalizedCPF !== '';
+        const sameEmail = normalizedEmail && r.email?.trim().toLowerCase() === normalizedEmail && normalizedEmail !== '';
+        const sameLogin = normalizedLogin && r.login?.trim().toLowerCase() === normalizedLogin && normalizedLogin !== '';
 
         return sameCPF || sameEmail || sameLogin;
       });
 
-      if (isDuplicate) {
-        alert("Erro: Já existe outro morador cadastrado com este CPF, E-mail ou Login para este bloco e unidade.");
+      if (duplicateResident) {
+        const field = duplicateResident.cpf?.trim() === normalizedCPF ? 'CPF' : 
+                     duplicateResident.email?.trim().toLowerCase() === normalizedEmail ? 'E-mail' : 'Login';
+        
+        alert(`Erro: Já existe outro morador cadastrado com este ${field} nesta Unidade/Bloco.`);
         setIsLoading(false);
         isSubmitting.current = false;
         return;
@@ -1847,6 +2018,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       const occurrencesRef = collection(db, 'condos', user.condoId, 'occurrences');
       await addDoc(occurrencesRef, {
         ...newOccurrence,
+        condoId: user.condoId,
         residentId: user.id,
         status: 'OPEN',
         createdAt: new Date().toISOString()
@@ -1857,6 +2029,161 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       alert('Ocorrência registrada com sucesso!');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/occurrences`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateReservation = async () => {
+    if (!user.condoId || !newReservation.areaId || !newReservation.date) {
+      alert("Selecione a área e a data.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const reservationsRef = collection(db, 'condos', user.condoId, 'reservations');
+      await addDoc(reservationsRef, sanitizeData({
+        ...newReservation,
+        condoId: user.condoId,
+        residentId: user.id,
+        residentName: user.name,
+        status: 'PENDING',
+        createdAt: new Date().toISOString()
+      }));
+      setShowAddReservationModal(false);
+      setNewReservation({
+        areaId: '',
+        areaName: '',
+        date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+        startTime: '08:00',
+        endTime: '10:00'
+      });
+      createAuditLog('Criou reserva', 'OTHER', undefined, `Área: ${newReservation.areaName}`);
+      alert('Sua solicitação de reserva foi enviada e aguarda aprovação.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/reservations`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateAssembly = async () => {
+    if (!user.condoId || !newAssembly.title || !newAssembly.startDate || !newAssembly.endDate) {
+      alert("Preencha o título e as datas.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const assembliesRef = collection(db, 'condos', user.condoId, 'assemblies');
+      const docRef = await addDoc(assembliesRef, sanitizeData({
+        ...newAssembly,
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      }));
+      setShowAddAssemblyModal(false);
+      setNewAssembly({
+        title: '',
+        description: '',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: addDays(new Date(), 7).toISOString().split('T')[0],
+        status: 'ACTIVE',
+        items: []
+      });
+      createAuditLog('Criou assembleia', 'ASSEMBLY', docRef.id, `Título: ${newAssembly.title}`);
+      alert('Assembleia criada com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/assemblies`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateMaintenanceTask = async () => {
+    if (!user.condoId || !newMaintenanceTask.title || !newMaintenanceTask.nextDueDate) {
+      alert("Preencha título e data.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const maintenanceRef = collection(db, 'condos', user.condoId, 'maintenance');
+      const docRef = await addDoc(maintenanceRef, sanitizeData({
+        ...newMaintenanceTask,
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      }));
+      setShowAddMaintenanceModal(false);
+      setNewMaintenanceTask({
+        title: '',
+        description: '',
+        category: 'OTHER',
+        frequency: 'MONTHLY',
+        nextDueDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+        status: 'PENDING'
+      });
+      createAuditLog('Criou tarefa de manutenção', 'MAINTENANCE', docRef.id, `Tarefa: ${newMaintenanceTask.title}`);
+      alert('Tarefa de manutenção registrada.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/maintenance`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateInfraction = async () => {
+    if (!user.condoId || !newInfraction.residentId || !newInfraction.description) {
+      alert("Selecione o morador e descreva a infração.");
+      return;
+    }
+    setIsLoading(true);
+    const resident = residents.find(r => r.id === newInfraction.residentId);
+    try {
+      const infractionsRef = collection(db, 'condos', user.condoId, 'infractions');
+      const docRef = await addDoc(infractionsRef, sanitizeData({
+        ...newInfraction,
+        residentName: resident?.name || 'Desconhecido',
+        unit: resident?.unit || '',
+        condoId: user.condoId,
+        status: 'PENDING',
+        createdAt: new Date().toISOString()
+      }));
+      
+      // Award negative points
+      if (newInfraction.type === 'FINE') {
+        handleAddPoints(newInfraction.residentId, -200, 'Infração GRAVE (Multa)');
+      } else {
+        handleAddPoints(newInfraction.residentId, -50, 'Infração LEVE (Advertência)');
+      }
+
+      setShowAddInfractionModal(false);
+      setNewInfraction({ residentId: '', type: 'WARNING', description: '', value: 0 });
+      createAuditLog('Registrou infração', 'OTHER', docRef.id, `Morador: ${resident?.name}`);
+      alert('Infração registrada e pontuação do morador atualizada.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/infractions`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateMinute = async () => {
+    if (!user.condoId || !newMinute.title || !newMinute.content) {
+      alert("Preencha título e conteúdo.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const minutesRef = collection(db, 'condos', user.condoId, 'minutes');
+      const docRef = await addDoc(minutesRef, sanitizeData({
+        ...newMinute,
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      }));
+      setShowAddMinuteModal(false);
+      setNewMinute({ title: '', content: '', assemblyId: '' });
+      createAuditLog('Criou ata/documento', 'OTHER', docRef.id, `Título: ${newMinute.title}`);
+      alert('Documento registrado com sucesso!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/minutes`);
     } finally {
       setIsLoading(false);
     }
@@ -1909,6 +2236,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       const movingRef = collection(db, 'condos', user.condoId, 'movingRequests');
       const docRef = await addDoc(movingRef, {
         ...newMovingRequest,
+        condoId: user.condoId,
         residentId: user.id,
         residentName: user.name,
         unit: residents.find(r => r.id === user.id)?.unit || 'N/A',
@@ -2064,6 +2392,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       const parkingRef = collection(db, 'condos', user.condoId, 'parkingSlots');
       const docRef = await addDoc(parkingRef, {
         ...newParkingSlot,
+        condoId: user.condoId,
         createdAt: new Date().toISOString()
       });
       setShowParkingModal(false);
@@ -2310,7 +2639,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       </aside>
 
       {/* Main Content */}
-      <main className="flex-grow flex flex-col overflow-hidden bg-[#F8FAFC]">
+      <main className="flex-grow flex flex-col min-w-0 min-h-0 relative bg-[#F8FAFC]">
         {/* Topbar */}
         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 sm:px-8 py-4 sm:py-5 flex justify-between items-center sticky top-0 z-40">
           <div className="flex items-center gap-4 sm:gap-6">
@@ -2371,7 +2700,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         </header>
 
         {/* Content Area */}
-        <div className="flex-grow overflow-y-auto p-4 sm:p-8 lg:p-12">
+        <div className="flex-grow overflow-y-auto p-4 sm:p-8 lg:p-12 min-h-0">
           <AnimatePresence mode="wait">
             {activeMenu === 'overview' && (
               <motion.div 
@@ -2724,51 +3053,122 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                     </button>
                   </div>
                 </div>
+
+                {/* Filtros de Relatório */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-wrap gap-4 items-end">
+                  <div className="flex-grow space-y-2">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest pl-1">Buscar Nome</label>
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input 
+                        type="text" 
+                        placeholder="Ex: João Silva..."
+                        value={residentFilter.name}
+                        onChange={(e) => setResidentFilter({...residentFilter, name: e.target.value})}
+                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div className="w-32 space-y-2">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest pl-1">Bloco</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: A"
+                      value={residentFilter.block}
+                      onChange={(e) => setResidentFilter({...residentFilter, block: e.target.value})}
+                      className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                  </div>
+                  <div className="w-32 space-y-2">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest pl-1">Torre</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: 1"
+                      value={residentFilter.tower}
+                      onChange={(e) => setResidentFilter({...residentFilter, tower: e.target.value})}
+                      className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                  </div>
+                  <div className="w-32 space-y-2">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest pl-1">Unidade</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: 101"
+                      value={residentFilter.unit}
+                      onChange={(e) => setResidentFilter({...residentFilter, unit: e.target.value})}
+                      className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setResidentFilter({ name: '', unit: '', block: '', tower: '' })}
+                    className="p-3 bg-gray-50 text-gray-400 hover:bg-gray-100 rounded-xl transition-all"
+                    title="Limpar Filtros"
+                  >
+                    <RefreshCw className="w-5 h-5" />
+                  </button>
+                </div>
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-100">
-                      <tr>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Nome</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Unidade</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tipo</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Contato</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Notificar</th>
-                        <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {residents.map((res) => (
-                        <tr key={res.id} className="hover:bg-gray-50 transition-all">
-                          <td className="px-8 py-4 font-bold text-primary">{res.name}</td>
-                          <td className="px-8 py-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[1000px]">
+                      <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest w-1/4">Nome</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Unidade</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tipo</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest w-1/5">Contato</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">CPF / Login</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Notificar</th>
+                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                      {filteredResidents.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-8 py-20 text-center">
+                            <div className="space-y-4">
+                              <Search className="w-12 h-12 text-gray-200 mx-auto" />
+                              <p className="text-gray-400 font-bold">Nenhum morador encontrado com estes filtros.</p>
+                              <button 
+                                onClick={() => setResidentFilter({ name: '', unit: '', block: '', tower: '' })}
+                                className="text-primary hover:underline text-sm font-bold"
+                              >
+                                Limpar filtros e ver todos
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredResidents.map((res) => (
+                          <tr key={res.id} className="hover:bg-gray-50 transition-all">
+                            <td className="px-6 py-4 font-bold text-primary break-words">{res.name}</td>
+                          <td className="px-6 py-4">
                             <p className="text-sm font-bold text-gray-600">{res.unit}</p>
                             {(res.block || res.tower) && (
-                              <p className="text-[10px] text-gray-400">
+                              <p className="text-[10px] text-gray-400 whitespace-nowrap">
                                 {res.block && `B: ${res.block}`} {res.tower && `T: ${res.tower}`}
                               </p>
                             )}
                           </td>
-                          <td className="px-8 py-4">
-                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.isOwner ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>
+                          <td className="px-6 py-4">
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full whitespace-nowrap ${res.isOwner ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>
                               {res.isOwner ? 'Proprietário' : 'Inquilino'}
                             </span>
                           </td>
-                          <td className="px-8 py-4">
-                            <p className="text-sm text-gray-600">{res.email}</p>
-                            <p className="text-xs text-gray-400">{res.phone}</p>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-gray-600 break-all">{res.email}</p>
+                            <p className="text-xs text-gray-400 font-mono">{formatPhone(res.phone)}</p>
                           </td>
-                          <td className="px-8 py-4">
-                            <p className="text-sm font-medium text-slate-600">{res.cpf || '-'}</p>
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-medium text-slate-600 font-mono">{formatCPF(res.cpf) || '-'}</p>
                             <p className="text-[10px] text-gray-400">{res.login || '-'}</p>
                           </td>
-                          <td className="px-8 py-4">
+                          <td className="px-6 py-4">
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${res.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                               {res.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
                             </span>
                           </td>
-                          <td className="px-8 py-4">
+                          <td className="px-6 py-4">
                             <div className="flex gap-2">
                               <button 
                                 onClick={() => handleNotifyResident(res, 'EMAIL')}
@@ -2786,8 +3186,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                               </button>
                             </div>
                           </td>
-                          <td className="px-8 py-4">
-                            <div className="flex items-center gap-4">
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-4">
                               <button 
                                 onClick={() => {
                                   setSelectedResidentForEdit(res);
@@ -2806,12 +3206,13 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                             </div>
                           </td>
                         </tr>
-                      ))}
+                      )))}
                     </tbody>
                   </table>
                 </div>
-              </motion.div>
-            )}
+              </div>
+            </motion.div>
+          )}
 
             {activeMenu === 'assemblies' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
@@ -2822,7 +3223,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   </div>
                   {user.role !== 'RESIDENT' && (
                     <button 
-                      onClick={() => alert("Funcionalidade de Nova Assembleia será implementada em breve.")}
+                      onClick={() => setShowAddAssemblyModal(true)}
                       className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                     >
                       <Plus className="w-5 h-5" /> Nova Assembleia
@@ -2954,7 +3355,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                     <p className="text-slate-500">Agenda e histórico de equipamentos críticos.</p>
                   </div>
                   <button 
-                    onClick={() => alert("Novo agendamento de manutenção será implementado em breve.")}
+                    onClick={() => setShowAddMaintenanceModal(true)}
                     className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                   >
                     <Plus className="w-5 h-5" /> Agendar Manutenção
@@ -3585,7 +3986,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                     <h2 className="text-2xl font-bold text-slate-800">Multas e Infrações</h2>
                     <p className="text-slate-500 text-sm">Gestão de penalidades e advertências do condomínio</p>
                   </div>
-                  <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2">
+                  <button 
+                    onClick={() => setShowAddInfractionModal(true)}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2"
+                  >
                     <Plus className="w-5 h-5" />
                     Registrar Infração
                   </button>
@@ -3785,7 +4189,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                     <p className="text-slate-500 text-sm">Acesso oficial às atas de assembleias e documentos do condomínio</p>
                   </div>
                   {user.role === 'CONDO_ADMIN' && (
-                    <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2">
+                    <button 
+                      onClick={() => setShowAddMinuteModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center gap-2"
+                    >
                       <Plus className="w-5 h-5" />
                       Novo Documento
                     </button>
@@ -4359,7 +4766,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   </button>
                 </div>
                 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
                   <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
                     <div className="flex justify-between items-center mb-8">
                       <h4 className="font-bold text-slate-800">Ocupação de Áreas Comuns</h4>
@@ -4408,6 +4815,94 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                         </div>
                       ))}
                     </div>
+                  </div>
+                </div>
+
+                {/* Filtro de Relatório de Moradores */}
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200/60 space-y-8">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="text-xl font-bold text-slate-800">Relatório de Moradores por Unidade</h4>
+                      <p className="text-slate-500 text-sm">Filtre por bloco, torre e unidade para exportar dados específicos.</p>
+                    </div>
+                    <button 
+                      onClick={() => alert('Exportando relatório filtrado em CSV...')}
+                      className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                    >
+                      <Download className="w-4 h-4" /> Exportar Dados
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Bloco</label>
+                      <input 
+                        type="text" 
+                        placeholder="Todos"
+                        value={residentFilter.block}
+                        onChange={(e) => setResidentFilter({...residentFilter, block: e.target.value})}
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Torre</label>
+                      <input 
+                        type="text" 
+                        placeholder="Todas"
+                        value={residentFilter.tower}
+                        onChange={(e) => setResidentFilter({...residentFilter, tower: e.target.value})}
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Unidade</label>
+                      <input 
+                        type="text" 
+                        placeholder="Todas"
+                        value={residentFilter.unit}
+                        onChange={(e) => setResidentFilter({...residentFilter, unit: e.target.value})}
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <button 
+                        onClick={() => setResidentFilter({ name: '', unit: '', block: '', tower: '' })}
+                        className="w-full py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw className="w-4 h-4" /> Limpar Filtros
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                    <table className="w-full text-left bg-white">
+                      <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Morador</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Unidade</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Bloco</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Torre</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">CPF</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {filteredResidents.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Nenhum registro encontrado para os filtros selecionados.</td>
+                          </tr>
+                        ) : (
+                          filteredResidents.map(res => (
+                            <tr key={res.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-6 py-4 font-bold text-slate-800">{res.name}</td>
+                              <td className="px-6 py-4 text-sm text-slate-600">{res.unit}</td>
+                              <td className="px-6 py-4 text-sm text-slate-600">{res.block || '-'}</td>
+                              <td className="px-6 py-4 text-sm text-slate-600">{res.tower || '-'}</td>
+                              <td className="px-6 py-4 text-sm text-slate-400 font-mono">{res.cpf || '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </motion.div>
@@ -4626,6 +5121,13 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                             className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all"
                           >
                             <Calendar className="w-4 h-4" /> Fechamento Mensal
+                          </button>
+                           <button 
+                            onClick={handleNotifyOverdueInvoices}
+                            className="bg-red-50 text-red-600 px-6 py-2.5 rounded-xl text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all flex items-center gap-2"
+                            title="Enviar E-mail e WhatsApp para todos com boletos pendentes ou atrasados"
+                          >
+                            <Bell className="w-4 h-4" /> Notificar Inadimplentes
                           </button>
                           <button 
                             onClick={() => setShowAddInvoiceModal(true)}
@@ -5033,7 +5535,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold text-primary">Reservas de Áreas Comuns</h3>
-                  <button className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20">
+                  <button 
+                    onClick={() => setShowAddReservationModal(true)}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
+                  >
                     <Plus className="w-5 h-5" /> Nova Reserva
                   </button>
                 </div>
@@ -5157,6 +5662,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                       );
                     })
                   )}
+                  <div ref={chatEndRef} />
                 </div>
 
                 {Object.keys(typingUsers).length > 0 && (
@@ -6325,6 +6831,28 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                         onChange={(e) => setNewVisitor({ ...newVisitor, validUntil: e.target.value })}
                         className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Placa do Carro (Opcional)</label>
+                        <input 
+                          type="text" 
+                          placeholder="ABC-1234" 
+                          value={newVisitor.carPlate}
+                          onChange={(e) => setNewVisitor({ ...newVisitor, carPlate: e.target.value.toUpperCase() })}
+                          className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Modelo do Carro</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ex: Corolla" 
+                          value={newVisitor.carModel}
+                          onChange={(e) => setNewVisitor({ ...newVisitor, carModel: e.target.value })}
+                          className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20" 
+                        />
+                      </div>
                     </div>
                     <button 
                       onClick={handleAddVisitor}
@@ -8406,6 +8934,279 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                 >
                   Cancelar
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Reservation Modal */}
+        {showAddReservationModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddReservationModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Reserva</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Área Comum</label>
+                  <select 
+                    value={newReservation.areaId} 
+                    onChange={(e) => {
+                      const opt = e.target.options[e.target.selectedIndex];
+                      setNewReservation({...newReservation, areaId: e.target.value, areaName: opt.text});
+                    }}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="party-hall">Salão de Festas</option>
+                    <option value="bbq-a">Churrasqueira A</option>
+                    <option value="bbq-b">Churrasqueira B</option>
+                    <option value="gym">Academia</option>
+                    <option value="pool">Piscina</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
+                  <input type="date" value={newReservation.date} onChange={(e) => setNewReservation({...newReservation, date: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Início</label>
+                    <input type="time" value={newReservation.startTime} onChange={(e) => setNewReservation({...newReservation, startTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fim</label>
+                    <input type="time" value={newReservation.endTime} onChange={(e) => setNewReservation({...newReservation, endTime: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                </div>
+                <button onClick={handleCreateReservation} className="w-full py-4 bg-primary text-white rounded-2xl font-bold mt-4 shadow-lg shadow-primary/20">Solicitar Reserva</button>
+                <button onClick={() => setShowAddReservationModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Assembly Modal */}
+        {showAddAssemblyModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddAssemblyModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-headline">Nova Assembleia Virtual</h3>
+              <div className="space-y-4 overflow-y-auto pr-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
+                  <input type="text" value={newAssembly.title} onChange={(e) => setNewAssembly({...newAssembly, title: e.target.value})} placeholder="Ex: Assembleia Geral Ordinária 2024" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição</label>
+                  <textarea value={newAssembly.description} onChange={(e) => setNewAssembly({...newAssembly, description: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" placeholder="Detalhes sobre os tópicos de discussão..." />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Início</label>
+                    <input type="date" value={newAssembly.startDate} onChange={(e) => setNewAssembly({...newAssembly, startDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data Fim</label>
+                    <input type="date" value={newAssembly.endDate} onChange={(e) => setNewAssembly({...newAssembly, endDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Itens de Pauta (Tópicos para Votação)</label>
+                  <button 
+                    onClick={() => {
+                      const items = [...(newAssembly.items || [])];
+                      items.push({ id: Math.random().toString(36).substr(2, 9), question: '', options: ['Sim', 'Não', 'Abstenção'], votes: {} });
+                      setNewAssembly({...newAssembly, items});
+                    }}
+                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-400"
+                  >
+                    + Adicionar Tópico de Votação
+                  </button>
+                  <div className="space-y-3 mt-4">
+                    {(newAssembly.items || []).map((item, idx) => (
+                      <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <input 
+                          type="text" 
+                          value={item.question} 
+                          onChange={(e) => {
+                            const next = [...newAssembly.items];
+                            next[idx].question = e.target.value;
+                            setNewAssembly({...newAssembly, items: next});
+                          }}
+                          placeholder="Digite a pergunta ou pauta..." 
+                          className="w-full bg-transparent border-b border-slate-200 py-2 text-sm font-bold focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white sticky bottom-0">
+                <button onClick={handleCreateAssembly} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20">Publicar Assembleia</button>
+                <button onClick={() => setShowAddAssemblyModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Maintenance Modal */}
+        {showAddMaintenanceModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMaintenanceModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Tarefa de Manutenção</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título</label>
+                  <input type="text" value={newMaintenanceTask.title} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, title: e.target.value})} placeholder="Ex: Revisão Preventiva Elevadores" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categoria</label>
+                  <select value={newMaintenanceTask.category} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, category: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="ELEVATOR">Elevadores</option>
+                    <option value="GATE">Portões</option>
+                    <option value="PUMP">Bombas d'Água</option>
+                    <option value="ELECTRICAL">Elétrica</option>
+                    <option value="OTHER">Outros</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Frequência</label>
+                  <select value={newMaintenanceTask.frequency} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, frequency: e.target.value as any})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="WEEKLY">Semanal</option>
+                    <option value="MONTHLY">Mensal</option>
+                    <option value="QUARTERLY">Trimestral</option>
+                    <option value="YEARLY">Anual</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Próxima Data</label>
+                  <input type="date" value={newMaintenanceTask.nextDueDate} onChange={(e) => setNewMaintenanceTask({...newMaintenanceTask, nextDueDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <button onClick={handleCreateMaintenanceTask} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-amber-600/20">Registrar Manutenção</button>
+                <button onClick={() => setShowAddMaintenanceModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Infraction Modal */}
+        {showAddInfractionModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddInfractionModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Nova Multa / Advertência</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Morador / Unidade</label>
+                  <select value={newInfraction.residentId} onChange={(e) => setNewInfraction({...newInfraction, residentId: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="">Selecione o Infrator...</option>
+                    {residents.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} - Un {r.unit}{r.block ? ` Bl ${r.block}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tipo</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setNewInfraction({...newInfraction, type: 'WARNING'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'WARNING' ? 'bg-amber-100 text-amber-600 border-2 border-amber-500' : 'bg-gray-50 border border-gray-200'}`}>Advertência</button>
+                    <button onClick={() => setNewInfraction({...newInfraction, type: 'FINE'})} className={`py-3 rounded-xl font-bold text-xs ${newInfraction.type === 'FINE' ? 'bg-red-100 text-red-600 border-2 border-red-500' : 'bg-gray-50 border border-gray-200'}`}>Multa</button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Descrição da Ocorrência</label>
+                  <textarea value={newInfraction.description} onChange={(e) => setNewInfraction({...newInfraction, description: e.target.value})} placeholder="Relate o ocorrido..." className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
+                </div>
+                {newInfraction.type === 'FINE' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Valor da Multa (R$)</label>
+                    <input type="number" value={newInfraction.value} onChange={(e) => setNewInfraction({...newInfraction, value: Number(e.target.value)})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 font-mono" />
+                  </div>
+                )}
+                <button onClick={handleCreateInfraction} className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold mt-4 shadow-lg shadow-red-600/20">Confirmar Penalidade</button>
+                <button onClick={() => setShowAddInfractionModal(false)} className="w-full py-4 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Minute Modal with AI Voice-to-Text */}
+        {showAddMinuteModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddMinuteModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden p-8 flex flex-col max-h-[90vh]">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">Novo Documento / Ata</h3>
+              <div className="space-y-4 overflow-y-auto pr-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título do Documento</label>
+                  <input type="text" value={newMinute.title} onChange={(e) => setNewMinute({...newMinute, title: e.target.value})} placeholder="Ex: Ata de Reunião de Condomínio 10/05" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conteúdo / Transcrição</label>
+                    <button 
+                      onClick={() => {
+                        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                        if (!SpeechRecognition) {
+                          alert("Seu navegador não suporta reconhecimento de voz.");
+                          return;
+                        }
+                        const recognition = new SpeechRecognition();
+                        recognition.lang = 'pt-BR';
+                        recognition.interimResults = false;
+                        recognition.maxAlternatives = 1;
+
+                        recognition.onstart = () => setIsTranscribing(true);
+                        recognition.onend = () => setIsTranscribing(false);
+                        recognition.onresult = (event: any) => {
+                          const transcript = event.results[0][0].transcript;
+                          setNewMinute(prev => ({...prev, content: (prev.content || '') + (prev.content ? '\n' : '') + transcript}));
+                        };
+                        recognition.onerror = (event: any) => {
+                          console.error('Speech recognition error:', event.error);
+                          setIsTranscribing(false);
+                        };
+                        recognition.start();
+                      }}
+                      disabled={isTranscribing}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${isTranscribing ? 'bg-red-100 text-red-600 animate-pulse border border-red-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'}`}
+                    >
+                      <Mic className="w-3 h-3" /> {isTranscribing ? 'Ouvindo...' : 'Gravar Áudio (Voz em Texto)'}
+                    </button>
+                  </div>
+                  <textarea 
+                    value={newMinute.content} 
+                    onChange={(e) => setNewMinute({...newMinute, content: e.target.value})} 
+                    className="w-full p-5 bg-gray-50 rounded-2xl border border-gray-200 h-64 text-sm leading-relaxed"
+                    placeholder="Comece a digitar ou use o botão de gravação para transcrever..." 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Arquivo PDF (Upload Direto)</label>
+                  <label className="block p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-gray-50 hover:bg-slate-100 cursor-pointer transition-all">
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {newMinute.fileUrl ? "Arquivo Selecionado" : "Clique para fazer upload do PDF"}
+                    </p>
+                    {newMinute.fileUrl && <p className="text-[10px] text-blue-600 mt-1 truncate max-w-xs mx-auto">Arquivo pronto para salvar</p>}
+                    <input 
+                      type="file" 
+                      accept=".pdf" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setNewMinute(prev => ({...prev, fileUrl: `file://${file.name}`}));
+                          alert(`Arquivo ${file.name} selecionado.`);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white">
+                <button onClick={handleCreateMinute} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20">Salvar Documento</button>
+                <button onClick={() => setShowAddMinuteModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
               </div>
             </motion.div>
           </div>
