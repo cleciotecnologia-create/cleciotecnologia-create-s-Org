@@ -1,4 +1,15 @@
-export type UserRole = 'SUPER_ADMIN' | 'CONDO_ADMIN' | 'SUB_SYNDIC' | 'RESIDENT' | 'JANITOR' | 'CONCIERGE' | 'SECURITY';
+export type UserRole = 
+  | 'SUPER_ADMIN' 
+  | 'CONDO_ADMIN' 
+  | 'SUB_SYNDIC' 
+  | 'TREASURER' 
+  | 'FISCAL_COUNCIL' 
+  | 'CONSULTATIVE_COUNCIL' 
+  | 'SECRETARY' 
+  | 'RESIDENT' 
+  | 'JANITOR' 
+  | 'CONCIERGE' 
+  | 'SECURITY';
 
 export interface User {
   id: string;
@@ -13,6 +24,9 @@ export interface User {
   mustChangePassword?: boolean;
   tempPassword?: string;
   createdAt?: string;
+  mandateStart?: string;
+  mandateEnd?: string;
+  electionMinuteUrl?: string;
 }
 
 export interface Condo {
@@ -134,7 +148,7 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
-  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'INVOICE' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG' | 'COMPLAINT' | 'CONDO_SETTINGS' | 'OTHER';
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'INVOICE' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG' | 'COMPLAINT' | 'CONDO_SETTINGS' | 'OVERTIME' | 'OTHER';
   resourceId?: string;
   details?: string;
   timestamp: string;
@@ -235,6 +249,7 @@ export interface MaintenanceTask {
   lastDoneAt?: string;
   nextDueDate: string;
   status: 'PENDING' | 'COMPLETED' | 'OVERDUE';
+  createdAt?: string;
 }
 
 export interface CondoScore {
@@ -330,6 +345,61 @@ export interface Complaint {
   createdAt: string;
 }
 
+export interface Commission {
+  id: string;
+  condoId: string;
+  name: string;
+  description: string;
+  memberIds: string[]; // User IDs (Residents or Staff)
+  createdAt: string;
+}
+
+export interface CommissionAgenda {
+  id: string;
+  condoId: string;
+  commissionId: string;
+  title: string;
+  description: string;
+  options: string[];
+  votes: { [userId: string]: number }; // userId -> option index
+  status: 'OPEN' | 'CLOSED';
+  createdAt: string;
+}
+
+export interface Election {
+  id: string;
+  condoId: string;
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  status: 'UPCOMING' | 'OPEN' | 'CLOSED';
+  commissionId?: string;
+  mandateYears: number;
+  allowProrogation: boolean;
+  termEnd?: string;
+  winnerId?: string;
+  createdAt: string;
+}
+
+export interface Candidate {
+  id: string;
+  electionId: string;
+  userId: string;
+  name: string;
+  proposal: string;
+  photoUrl?: string;
+  voteCount: number;
+}
+
+export interface ElectionVote {
+  id: string;
+  electionId: string;
+  userId: string;
+  candidateId: string;
+  timestamp: string;
+}
+
 export interface CashFlowEntry {
   id: string;
   condoId: string;
@@ -343,6 +413,24 @@ export interface CashFlowEntry {
   requestedByName?: string;
   authorizedBy?: string;
   authorizedByName?: string;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export interface OvertimeRequest {
+  id: string;
+  condoId: string;
+  staffId: string;
+  staffName: string;
+  date: string;
+  hours: number;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedBy: string;
+  requestedByName: string;
+  authorizedBy?: string;
+  authorizedByName?: string;
+  authorizedAt?: string;
   rejectionReason?: string;
   createdAt: string;
 }

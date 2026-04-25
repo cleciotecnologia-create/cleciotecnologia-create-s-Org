@@ -182,9 +182,10 @@
         "frequency": { "type": "string", "enum": ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"] },
         "lastDoneAt": { "type": "string", "format": "date-time" },
         "nextDueDate": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["PENDING", "COMPLETED", "OVERDUE"] }
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED", "OVERDUE"] },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "condoId", "title", "category", "frequency", "nextDueDate", "status"]
+      "required": ["id", "condoId", "title", "category", "frequency", "nextDueDate", "status", "createdAt"]
     },
     "CondoScore": {
       "title": "CondoScore",
@@ -269,6 +270,28 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "condoId", "title", "content", "createdAt"]
+    },
+    "OvertimeRequest": {
+      "title": "OvertimeRequest",
+      "description": "Staff overtime authorization request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "condoId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "staffName": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "hours": { "type": "number" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "requestedBy": { "type": "string" },
+        "requestedByName": { "type": "string" },
+        "authorizedBy": { "type": "string" },
+        "authorizedByName": { "type": "string" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "condoId", "staffId", "staffName", "hours", "reason", "status", "requestedBy", "createdAt"]
     }
   },
   "firestore": {
@@ -335,6 +358,10 @@
     "/condos/{condoId}/minutes/{minuteId}": {
       "schema": "Minute",
       "description": "Assembly minutes and official documents"
+    },
+    "/condos/{condoId}/overtime/{requestId}": {
+      "schema": "OvertimeRequest",
+      "description": "Overtime authorization requests"
     }
   }
 }

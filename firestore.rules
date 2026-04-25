@@ -74,13 +74,13 @@ service cloud.firestore {
 
     function isValidDateString(dateStr) {
       return dateStr is string && (
-        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$") ||
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T.*$") ||
         dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$")
       );
     }
 
     function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+      return fields.hasAll(request.resource.data.keys());
     }
 
     function getUserData() {
@@ -129,18 +129,21 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'phone', 'login', 'role', 'condoId', 'avatarUrl', 'mustChangePassword', 'tempPassword', 'createdAt']) &&
+      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'phone', 'login', 'role', 'condoId', 'avatarUrl', 'mustChangePassword', 'tempPassword', 'mandateStart', 'mandateEnd', 'electionMinuteUrl', 'createdAt']) &&
              (!('id' in data) || (data.id is string && data.id.size() > 0)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() > 0)) &&
              (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
-             data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'SUB_SYNDIC', 'RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY'] &&
+             data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'SUB_SYNDIC', 'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY', 'RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY'] &&
              (!('condoId' in data) || (data.condoId is string && data.condoId.size() > 0)) &&
              (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500)) &&
              (!('mustChangePassword' in data) || data.mustChangePassword is bool) &&
              (!('tempPassword' in data) || (data.tempPassword is string && data.tempPassword.size() < 100)) &&
+             (!('mandateStart' in data) || isValidDateString(data.mandateStart)) &&
+             (!('mandateEnd' in data) || isValidDateString(data.mandateEnd)) &&
+             (!('electionMinuteUrl' in data) || data.electionMinuteUrl is string) &&
              (!('createdAt' in data) || isValidDateString(data.createdAt));
     }
 
@@ -199,7 +202,7 @@ service cloud.firestore {
 
     function isValidChatMessage(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'senderId', 'senderName', 'text', 'createdAt']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.senderId is string &&
              data.senderName is string && data.senderName.size() > 0 &&
@@ -209,12 +212,12 @@ service cloud.firestore {
 
     function isValidAuditLog(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'userId', 'userName', 'action', 'resourceType', 'resourceId', 'details', 'timestamp']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.userId is string &&
              data.userName is string &&
              data.action is string &&
-             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'INVOICE', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE', 'MOVING', 'PARKING', 'TAG', 'COMPLAINT', 'CONDO_SETTINGS', 'OTHER'] &&
+             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'INVOICE', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE', 'MOVING', 'PARKING', 'TAG', 'COMPLAINT', 'CONDO_SETTINGS', 'OVERTIME', 'OTHER'] &&
              (!('resourceId' in data) || data.resourceId is string) &&
              (!('details' in data) || data.details is string) &&
              isValidDateString(data.timestamp);
@@ -222,7 +225,7 @@ service cloud.firestore {
 
     function isValidComplaint(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'senderId', 'senderName', 'type', 'subject', 'description', 'isAnonymous', 'status', 'createdAt']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              (!('senderId' in data) || data.senderId is string) &&
              (!('senderName' in data) || data.senderName is string) &&
@@ -236,7 +239,7 @@ service cloud.firestore {
 
     function isValidPackage(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'residentName', 'unit', 'description', 'carrier', 'status', 'receivedAt', 'deliveredAt', 'qrCodeData']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.residentId is string &&
              data.residentName is string &&
@@ -248,7 +251,7 @@ service cloud.firestore {
 
     function isValidVisitor(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'name', 'cpf', 'type', 'status', 'validUntil', 'qrCode']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.residentId is string &&
              data.name is string &&
@@ -261,7 +264,7 @@ service cloud.firestore {
 
     function isValidAssembly(data) {
       return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'startDate', 'endDate', 'status', 'items', 'createdAt']) &&
-             data.id is string &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.title is string && data.title.size() > 0 &&
              data.status in ['SCHEDULED', 'ACTIVE', 'CLOSED'] &&
@@ -271,14 +274,15 @@ service cloud.firestore {
     }
 
     function isValidMaintenanceTask(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'category', 'frequency', 'lastDoneAt', 'nextDueDate', 'status']) &&
-             data.id is string &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'category', 'frequency', 'lastDoneAt', 'nextDueDate', 'status', 'createdAt']) &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.title is string &&
              data.category in ['ELEVATOR', 'GATE', 'PUMP', 'ELECTRICAL', 'OTHER'] &&
              data.frequency in ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] &&
              isValidDateString(data.nextDueDate) &&
-             data.status in ['PENDING', 'COMPLETED', 'OVERDUE'];
+             data.status in ['PENDING', 'COMPLETED', 'OVERDUE'] &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
     }
 
     function isValidInvoice(data) {
@@ -355,10 +359,10 @@ service cloud.firestore {
     }
 
     function isValidCashFlowEntry(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'type', 'category', 'amount', 'description', 'date', 'createdAt']) &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'type', 'category', 'amount', 'description', 'date', 'status', 'requestedBy', 'requestedByName', 'authorizedBy', 'authorizedByName', 'rejectionReason', 'createdAt']) &&
              data.id is string &&
              data.condoId is string &&
-             data.type in ['REVENUE', 'EXPENSE'] &&
+             data.type in ['INCOME', 'EXPENSE'] &&
              data.category is string &&
              data.amount is number &&
              data.description is string &&
@@ -386,13 +390,73 @@ service cloud.firestore {
     function isValidParkingSlot(data) {
       return (data.keys().hasAll(['id']) ? data.id is string : true) &&
              (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
-             data.status in ['AVAILABLE', 'OCCUPIED', 'RESERVED'] &&
+             data.status in ['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'] &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
+    }
+
+    function isValidElection(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'title', 'description', 'startDate', 'endDate', 'status', 'commissionId', 'mandateYears', 'allowProrogation', 'termEnd', 'winnerId', 'createdAt']) &&
+             (!('id' in data) || data.id is string) &&
+             data.condoId is string &&
+             data.title is string &&
+             data.status in ['UPCOMING', 'OPEN', 'CLOSED'] &&
+             data.mandateYears is number &&
+             data.allowProrogation is bool &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidCandidate(data) {
+      return hasOnlyAllowedFields(['id', 'electionId', 'userId', 'name', 'proposal', 'photoUrl', 'voteCount']) &&
+             (!('id' in data) || data.id is string) &&
+             data.electionId is string &&
+             data.userId is string &&
+             data.name is string &&
+             data.proposal is string &&
+             data.voteCount is number;
+    }
+
+    function isValidElectionVote(data) {
+      return hasOnlyAllowedFields(['id', 'electionId', 'userId', 'candidateId', 'timestamp']) &&
+             (!('id' in data) || data.id is string) &&
+             data.electionId is string &&
+             data.userId is string &&
+             data.candidateId is string &&
+             isValidDateString(data.timestamp);
+    }
+
+    function isValidCommission(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'name', 'description', 'memberIds', 'createdAt']) &&
+             (!('id' in data) || data.id is string) &&
+             data.condoId is string &&
+             data.name is string &&
+             data.memberIds is list &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidCommissionAgenda(data) {
+      return hasOnlyAllowedFields(['id', 'condoId', 'commissionId', 'title', 'description', 'options', 'votes', 'status', 'createdAt']) &&
+             (!('id' in data) || data.id is string) &&
+             data.condoId is string &&
+             data.commissionId is string &&
+             data.title is string &&
+             data.options is list &&
+             data.status in ['OPEN', 'CLOSED'] &&
              isValidDateString(data.createdAt);
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
+
+    function isValidOvertimeRequest(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
+             data.staffId is string &&
+             data.hours is number &&
+             data.reason is string &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED'] &&
+             isValidDateString(data.createdAt);
+    }
 
     match /saas_audit_logs/{logId} {
       allow read: if isAdmin();
@@ -584,6 +648,47 @@ service cloud.firestore {
       allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
       allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidParkingSlot(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/overtime/{requestId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isStaff(condoId) && resource.data.staffId == request.auth.uid);
+      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isStaff(condoId)) && 
+                      request.resource.data.condoId == condoId &&
+                      isValidOvertimeRequest(request.resource.data);
+      allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidOvertimeRequest(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/commissions/{commissionId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId) || isStaff(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidCommission(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/commissionAgendas/{agendaId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId) || isStaff(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidCommissionAgenda(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/elections/{electionId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId) || isStaff(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidElection(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/candidates/{candidateId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId) || isStaff(condoId);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidCandidate(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/electionVotes/{voteId} {
+      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.userId == request.auth.uid);
+      allow create: if isResident(condoId) && 
+                      request.resource.data.userId == request.auth.uid && 
+                      isValidElectionVote(request.resource.data);
+      allow update, delete: if false; 
     }
 
     match /condos/{condoId}/accessTags/{tagId} {

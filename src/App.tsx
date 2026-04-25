@@ -10,7 +10,7 @@ import {
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
   Check, Info, AlertCircle, HelpCircle, ExternalLink, Copy, Share2, Heart, ThumbsUp, ThumbsDown,
   Smile, Frown, Meh, Briefcase, Key, Target, Award, ZoomIn, ZoomOut, ArrowUp, ArrowDown, Database, RefreshCw, Save,
-  Truck, Tag, Car, Mic
+  Truck, Tag, Car, Mic, Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactPlayer from 'react-player';
@@ -39,7 +39,8 @@ import {
   User as AppUser, UserRole, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
   Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading,
-  Infraction, Minute, MovingRequest, ParkingSlot, AccessTag, CashFlowEntry, Complaint
+  Infraction, Minute, MovingRequest, ParkingSlot, AccessTag, CashFlowEntry, Complaint,
+  Commission, CommissionAgenda, Election, Candidate, ElectionVote, OvertimeRequest
 } from './types';
 import { auth, db } from './firebase';
 import { cameraService, CameraStream, CameraAction } from './services/cameraService';
@@ -69,7 +70,8 @@ import {
   addDoc,
   deleteDoc,
   updateDoc,
-  deleteField
+  deleteField,
+  increment
 } from 'firebase/firestore';
 
 // --- Error Handling ---
@@ -106,9 +108,8 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 // Helper to remove undefined fields before sending to Firestore
 const sanitizeData = (data: any) => {
   if (!data || typeof data !== 'object') return data;
-  return Object.fromEntries(
-    Object.entries(data).filter(([_, v]) => v !== undefined && v !== null && v !== "")
-  );
+  const entries = Object.entries(data).filter(([k, v]) => k !== 'password' && v !== undefined && v !== null && v !== "");
+  return Object.fromEntries(entries);
 };
 
 const formatCPF = (value: string) => {
@@ -523,9 +524,22 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [gasReadings, setGasReadings] = useState<GasReading[]>([]);
   const [infractions, setInfractions] = useState<Infraction[]>([]);
   const [minutes, setMinutes] = useState<Minute[]>([]);
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [commissionAgendas, setCommissionAgendas] = useState<CommissionAgenda[]>([]);
+  const [elections, setElections] = useState<Election[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [myVotes, setMyVotes] = useState<ElectionVote[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [cashFlowEntries, setCashFlowEntries] = useState<CashFlowEntry[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [overtimeRequests, setOvertimeRequests] = useState<OvertimeRequest[]>([]);
+  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
+  const [newOvertimeRequest, setNewOvertimeRequest] = useState<Partial<OvertimeRequest>>({
+    date: new Date().toISOString().split('T')[0],
+    hours: 1,
+    reason: '',
+    status: 'PENDING'
+  });
   const [showComplaintModal, setShowComplaintModal] = useState(false);
   const [showMonthlyClosingModal, setShowMonthlyClosingModal] = useState(false);
   const [closingMonth, setClosingMonth] = useState(format(new Date(), 'MMMM/yyyy', { locale: ptBR }));
@@ -549,10 +563,22 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [isCamsLoading, setIsCamsLoading] = useState(false);
   const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings' | 'api'>('monitoring');
   const [staff, setStaff] = useState<AppUser[]>([]);
+  const [staffTab, setStaffTab] = useState<'operational' | 'board'>('operational');
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [showEditStaffModal, setShowEditStaffModal] = useState(false);
   const [selectedStaffForEdit, setSelectedStaffForEdit] = useState<AppUser | null>(null);
-  const [newStaff, setNewStaff] = useState({ name: '', email: '', role: 'JANITOR' as UserRole, condoId: user.condoId || '', cpf: '', login: '' });
+  const [newStaff, setNewStaff] = useState({ 
+    name: '', 
+    email: '', 
+    role: 'JANITOR' as UserRole, 
+    condoId: user.condoId || '', 
+    cpf: '', 
+    login: '', 
+    password: '',
+    mandateStart: '',
+    mandateEnd: '',
+    electionMinuteUrl: ''
+  });
   const [cameraConfig, setCameraConfig] = useState({
     ip: '192.168.1.100',
     httpPort: 80,
@@ -585,6 +611,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     isOwner: false,
     ownerId: '',
+    password: '',
     tempPassword: ''
   });
   const [newVisitor, setNewVisitor] = useState({
@@ -606,14 +633,39 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
   const [showAddInfractionModal, setShowAddInfractionModal] = useState(false);
   const [showAddMinuteModal, setShowAddMinuteModal] = useState(false);
+  const [showAddCommissionModal, setShowAddCommissionModal] = useState(false);
+  const [newCommission, setNewCommission] = useState<{name: string, description: string, memberIds: string[]}>({ name: '', description: '', memberIds: [] });
+  const [showAddCommissionAgendaModal, setShowAddCommissionAgendaModal] = useState(false);
+  const [showAddElectionModal, setShowAddElectionModal] = useState(false);
+  const [showAddCandidateModal, setShowAddCandidateModal] = useState(false);
+  const [newElection, setNewElection] = useState<{title: string, description: string, startDate: string, endDate: string, mandateYears: number, allowProrogation: boolean, commissionId: string}>({
+    title: '',
+    description: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    mandateYears: 2,
+    allowProrogation: true,
+    commissionId: ''
+  });
+  const [newCandidate, setNewCandidate] = useState<{electionId: string, userId: string, proposal: string}>({
+    electionId: '',
+    userId: '',
+    proposal: ''
+  });
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profilePassword, setProfilePassword] = useState({ current: '', new: '', confirm: '' });
+  const [newCommissionAgenda, setNewCommissionAgenda] = useState<{commissionId: string, title: string, description: string, options: string[]}>({
+    commissionId: '',
+    title: '',
+    description: '',
+    options: ['Sim', 'Não', 'Abster']
+  });
   const [isTranscribing, setIsTranscribing] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (activeMenu === 'chat') {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, activeMenu]);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, activeMenu, typingUsers]);
   const [newPackage, setNewPackage] = useState({ 
     residentId: '', 
     description: '', 
@@ -1100,12 +1152,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
     const auditLogsRef = collection(db, 'condos', user.condoId, 'auditLogs');
     const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
-    let unsubAuditLogs = () => {};
-    if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
-      unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
-        setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
-      }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
-    }
+    const unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
+      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/auditLogs`));
 
     const assembliesRef = collection(db, 'condos', user.condoId, 'assemblies');
     const unsubAssemblies = onSnapshot(assembliesRef, (snap) => {
@@ -1151,6 +1200,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       }
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/cashFlow`));
 
+    const overtimeRef = collection(db, 'condos', user.condoId, 'overtime');
+    const unsubOvertime = onSnapshot(overtimeRef, (snap) => {
+      setOvertimeRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as OvertimeRequest)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/overtime`));
+
     const complaintsRef = collection(db, 'condos', user.condoId, 'complaints');
     const unsubComplaints = onSnapshot(complaintsRef, (snap) => {
       setComplaints(snap.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)));
@@ -1159,8 +1213,38 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     const usersRef = collection(db, 'users');
     const staffQuery = query(usersRef, where('condoId', '==', user.condoId));
     const unsubStaff = onSnapshot(staffQuery, (snap) => {
-      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)).filter(u => ['JANITOR', 'CONCIERGE', 'SECURITY', 'SUB_SYNDIC'].includes(u.role)));
+      const allStaff = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser));
+      setStaff(allStaff.filter(u => [
+        'JANITOR', 'CONCIERGE', 'SECURITY', 'SUB_SYNDIC', 
+        'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY', 'CONDO_ADMIN'
+      ].includes(u.role)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users`));
+
+    const commissionsRef = collection(db, 'condos', user.condoId, 'commissions');
+    const unsubCommissions = onSnapshot(commissionsRef, (snap) => {
+      setCommissions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Commission)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/commissions`));
+
+    const commissionAgendasRef = collection(db, 'condos', user.condoId, 'commissionAgendas');
+    const unsubCommissionAgendas = onSnapshot(commissionAgendasRef, (snap) => {
+      setCommissionAgendas(snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionAgenda)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/commissionAgendas`));
+
+    const electionsRef = collection(db, 'condos', user.condoId, 'elections');
+    const unsubElections = onSnapshot(electionsRef, (snap) => {
+      setElections(snap.docs.map(d => ({ id: d.id, ...d.data() } as Election)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/elections`));
+
+    const votesRef = collection(db, 'condos', user.condoId, 'votes');
+    const qVotes = query(votesRef, where('userId', '==', user.id));
+    const unsubVotes = onSnapshot(qVotes, (snap) => {
+      setMyVotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as ElectionVote)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/votes`));
+
+    const candidatesRef = collection(db, 'condos', user.condoId, 'candidates');
+    const unsubCandidates = onSnapshot(candidatesRef, (snap) => {
+      setCandidates(snap.docs.map(d => ({ id: d.id, ...d.data() } as Candidate)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/candidates`));
 
     const reservationsRef = collection(db, 'condos', user.condoId, 'reservations');
     let reservationsQuery = query(reservationsRef, orderBy('createdAt', 'desc'), limit(50));
@@ -1379,6 +1463,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       unsubParking();
       unsubTags();
       unsubCashFlow();
+      unsubOvertime();
       unsubComplaints();
       unsubStaff();
       unsubReservations();
@@ -1505,7 +1590,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
       alert("Morador cadastrado com sucesso!");
       setShowAddResidentModal(false);
-      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', tempPassword: '' });
+      setNewResident({ name: '', email: '', unit: '', block: '', tower: '', phone: '', cpf: '', login: '', status: 'ACTIVE', isOwner: false, ownerId: '', password: '', tempPassword: '' });
     } catch (err: any) {
       console.error("Erro ao adicionar morador:", err);
       let errorMessage = "Ocorreu um erro ao salvar o morador.";
@@ -1632,6 +1717,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         condoId: user.condoId,
         cpf: newStaff.cpf.trim() || '000.000.000-00',
         login: newStaff.login.trim() || newStaff.email.split('@')[0],
+        tempPassword: newStaff.password || '123456',
+        mustChangePassword: true,
+        mandateStart: newStaff.mandateStart,
+        mandateEnd: newStaff.mandateEnd,
+        electionMinuteUrl: newStaff.electionMinuteUrl,
         createdAt: new Date().toISOString()
       };
 
@@ -1640,7 +1730,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
       alert("Membro da equipe cadastrado com sucesso!");
       setShowAddStaffModal(false);
-      setNewStaff({ name: '', email: '', role: 'JANITOR', condoId: user.condoId, cpf: '', login: '' });
+      setNewStaff({ 
+        name: '', 
+        email: '', 
+        role: 'JANITOR', 
+        condoId: user.condoId, 
+        cpf: '', 
+        login: '', 
+        password: '',
+        mandateStart: '',
+        mandateEnd: '',
+        electionMinuteUrl: ''
+      });
     } catch (err: any) {
       console.error("Erro ao adicionar staff:", err);
       handleFirestoreError(err, OperationType.CREATE, `users`);
@@ -2336,6 +2437,83 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     }
   };
 
+  const handleRequestOvertime = async () => {
+    if (!user.condoId || !newOvertimeRequest.staffId || !newOvertimeRequest.hours || !newOvertimeRequest.reason) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const overtimeRef = collection(db, 'condos', user.condoId, 'overtime');
+      const docRef = doc(overtimeRef);
+      const staffMember = staff.find(s => s.id === newOvertimeRequest.staffId);
+      
+      const overtimeData: OvertimeRequest = {
+        id: docRef.id,
+        condoId: user.condoId,
+        staffId: newOvertimeRequest.staffId!,
+        staffName: staffMember?.name || 'Funcionário',
+        date: newOvertimeRequest.date || new Date().toISOString().split('T')[0],
+        hours: Number(newOvertimeRequest.hours),
+        reason: newOvertimeRequest.reason!,
+        status: 'PENDING',
+        requestedBy: user.id,
+        requestedByName: user.name,
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(docRef, overtimeData);
+      setShowOvertimeModal(false);
+      setNewOvertimeRequest({
+        date: new Date().toISOString().split('T')[0],
+        hours: 1,
+        reason: '',
+        status: 'PENDING'
+      });
+      createAuditLog('Solicitou autorização de hora extra', 'OVERTIME', docRef.id, `Funcionário: ${overtimeData.staffName}, Horas: ${overtimeData.hours}`);
+      alert("Solicitação enviada com sucesso!");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/overtime`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleApproveOvertime = async (reqId: string) => {
+    if (!user.condoId) return;
+    try {
+      const overtimeRef = doc(db, 'condos', user.condoId, 'overtime', reqId);
+      await setDoc(overtimeRef, {
+        status: 'APPROVED',
+        authorizedBy: user.id,
+        authorizedByName: user.name,
+        authorizedAt: new Date().toISOString()
+      }, { merge: true });
+      createAuditLog('Aprovou hora extra', 'OVERTIME', reqId);
+      alert("Hora extra aprovada!");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/overtime/${reqId}`);
+    }
+  };
+
+  const handleRejectOvertime = async (reqId: string, reason: string) => {
+    if (!user.condoId) return;
+    try {
+      const overtimeRef = doc(db, 'condos', user.condoId, 'overtime', reqId);
+      await setDoc(overtimeRef, {
+        status: 'REJECTED',
+        authorizedBy: user.id,
+        authorizedByName: user.name,
+        authorizedAt: new Date().toISOString(),
+        rejectionReason: reason
+      }, { merge: true });
+      createAuditLog('Rejeitou hora extra', 'OVERTIME', reqId, `Motivo: ${reason}`);
+      alert("Hora extra rejeitada.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/overtime/${reqId}`);
+    }
+  };
+
   const handleUpdateOccurrenceStatus = async (occurrenceId: string, status: Occurrence['status']) => {
     if (!user.condoId) return;
     try {
@@ -2642,6 +2820,174 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     }
   };
 
+  const handleCreateCommission = async () => {
+    if (!user.condoId || !newCommission.name) return;
+    try {
+      const commissionsRef = collection(db, 'condos', user.condoId, 'commissions');
+      const docRef = await addDoc(commissionsRef, {
+        ...newCommission,
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      });
+      setShowAddCommissionModal(false);
+      setNewCommission({ name: '', description: '', memberIds: [] });
+      createAuditLog('Criou nova comissão', 'OTHER', docRef.id, `Comissão: ${newCommission.name}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/commissions`);
+    }
+  };
+
+  const handleCreateCommissionAgenda = async () => {
+    if (!user.condoId || !newCommissionAgenda.commissionId || !newCommissionAgenda.title) return;
+    try {
+      const agendasRef = collection(db, 'condos', user.condoId, 'commissionAgendas');
+      const docRef = await addDoc(agendasRef, {
+        ...newCommissionAgenda,
+        condoId: user.condoId,
+        votes: {},
+        status: 'OPEN',
+        createdAt: new Date().toISOString()
+      });
+      setShowAddCommissionAgendaModal(false);
+      setNewCommissionAgenda({ commissionId: '', title: '', description: '', options: ['Sim', 'Não', 'Abster'] });
+      createAuditLog('Criou pauta em comissão', 'OTHER', docRef.id, `Pauta: ${newCommissionAgenda.title}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/commissionAgendas`);
+    }
+  };
+
+  const handleVoteInAgenda = async (agendaId: string, optionIndex: number) => {
+    if (!user.condoId) return;
+    try {
+      const agendaRef = doc(db, 'condos', user.condoId, 'commissionAgendas', agendaId);
+      await updateDoc(agendaRef, {
+        [`votes.${user.id}`]: optionIndex
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/commissionAgendas/${agendaId}`);
+    }
+  };
+
+  const handleDeleteCommission = async (id: string) => {
+    if (!user.condoId) return;
+    if (!window.confirm("Deseja realmente excluir esta comissão?")) return;
+    try {
+      await deleteDoc(doc(db, 'condos', user.condoId, 'commissions', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `condos/${user.condoId}/commissions/${id}`);
+    }
+  };
+
+  const handleCreateElection = async () => {
+    if (!user.condoId || !newElection.title) return;
+    try {
+      const electionsRef = collection(db, 'condos', user.condoId, 'elections');
+      const docRef = await addDoc(electionsRef, {
+        ...newElection,
+        status: 'UPCOMING',
+        condoId: user.condoId,
+        createdAt: new Date().toISOString()
+      });
+      setShowAddElectionModal(false);
+      setNewElection({
+        title: '',
+        description: '',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        mandateYears: 2,
+        allowProrogation: true,
+        commissionId: ''
+      });
+      createAuditLog('Criou nova eleição', 'OTHER', docRef.id, `Eleição: ${newElection.title}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/elections`);
+    }
+  };
+
+  const handleAddCandidate = async () => {
+    if (!user.condoId || !newCandidate.electionId || !newCandidate.userId) return;
+    try {
+      const candidatesRef = collection(db, 'condos', user.condoId, 'candidates');
+      const userObj = residents.find(r => r.id === newCandidate.userId) || staff.find(s => s.id === newCandidate.userId);
+      await addDoc(candidatesRef, {
+        ...newCandidate,
+        name: userObj?.name || 'Desconhecido',
+        voteCount: 0,
+        createdAt: new Date().toISOString()
+      });
+      setShowAddCandidateModal(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/candidates`);
+    }
+  };
+
+  const handleCastVote = async (electionId: string, candidateId: string) => {
+    if (!user.condoId) return;
+    
+    // Check if user is in good standing (in accordance with legislation suggestion)
+    const unpaidInvoices = invoices.filter(inv => inv.residentId === user.id && inv.status === 'OVERDUE');
+    if (user.role === 'RESIDENT' && unpaidInvoices.length > 0) {
+      alert("⚠️ Conforme o Art. 1.335 do Código Civil, apenas condôminos quitados podem votar. Por favor, regularize suas pendências financeiras.");
+      return;
+    }
+
+    if (!window.confirm("Confirma seu voto? Esta ação não pode ser desfeita.")) return;
+
+    try {
+      const votesRef = collection(db, 'condos', user.condoId, 'votes');
+      // In a real production app, we would use a cloud function to prevent multiple votes.
+      // Here we rely on the list query and rules.
+      await addDoc(votesRef, {
+        electionId,
+        candidateId,
+        userId: user.id,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Update candidate counter
+      const candidateRef = doc(db, 'condos', user.condoId, 'candidates', candidateId);
+      await updateDoc(candidateRef, {
+        voteCount: increment(1)
+      });
+      
+      alert("Voto computado com sucesso! Obrigado por participar.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `condos/${user.condoId}/votes`);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (profilePassword.new !== profilePassword.confirm) {
+      alert("As senhas não coincidem!");
+      return;
+    }
+    if (profilePassword.new.length < 6) {
+      alert("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, profilePassword.new);
+        alert("Senha atualizada com sucesso!");
+        setShowProfileModal(false);
+        setProfilePassword({ current: '', new: '', confirm: '' });
+      } else {
+        alert("Usuário não autenticado.");
+      }
+    } catch (err: any) {
+      console.error("Erro ao atualizar senha:", err);
+      let message = "Erro ao atualizar senha.";
+      if (err.code === 'auth/requires-recent-login') {
+        message = "Por segurança, esta operação requer um login recente. Por favor, saia e entre novamente no sistema.";
+      }
+      alert(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeMenu === 'cameras') {
       loadCameras();
@@ -2676,6 +3022,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard, category: 'main' },
     { id: 'announcements', label: 'Comunicados', icon: Megaphone, category: 'communication' },
     { id: 'chat', label: 'Chat Comunitário', icon: MessageSquare, category: 'communication' },
+    { id: 'commissions', label: 'Comissões', icon: Users, category: 'communication' },
+    { id: 'elections', label: 'Eleições', icon: Gavel, category: 'communication' },
     { id: 'cameras', label: 'Monitoramento', icon: Activity, premiumOnly: true, category: 'safety' },
     { id: 'assemblies', label: 'Assembleias', icon: Gavel, category: 'communication' },
     { id: 'minutes', label: 'Atas e Documentos', icon: FileText, category: 'communication' },
@@ -2687,6 +3035,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     { id: 'reservations', label: 'Reservas', icon: Calendar, category: 'community' },
     { id: 'moving', label: 'Mudanças', icon: Truck, category: 'management' },
     { id: 'parking', label: 'Vagas de Garagem', icon: Car, category: 'management' },
+    { id: 'overtime', label: 'Horas Extras', icon: Clock, category: 'management' },
     { id: 'concierge', label: 'Portaria Remota', icon: Shield, category: 'safety' },
     { id: 'tags', label: 'Tags de Acesso', icon: Tag, category: 'safety' },
     { id: 'maintenance', label: 'Manutenção', icon: Wrench, adminOnly: true, category: 'management' },
@@ -2886,25 +3235,28 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
               </button>
             </div>
             
-            <div className="flex items-center gap-4 pl-6 border-l border-slate-200">
-              <div className="text-right hidden lg:block">
-                <p className="text-sm font-black text-slate-800 leading-none mb-1">{user.name}</p>
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 justify-end">
-                  {user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 
-                   user.role === 'SUB_SYNDIC' ? 'Subsíndico' :
-                   user.role === 'SUPER_ADMIN' ? 'Super Admin' :
-                   user.role === 'JANITOR' ? 'Zelador' :
-                   user.role === 'CONCIERGE' ? 'Porteiro' :
-                   user.role === 'SECURITY' ? 'Segurança' : 'Morador'}
-                  {user.role === 'SUB_SYNDIC' && (condo?.isSyndicAbsent || condo?.actingAdminId === user.id) && (
-                    <span className="bg-orange-500 text-white px-1.5 py-0.5 rounded text-[8px] animate-pulse">EM EXERCÍCIO</span>
-                  )}
-                </p>
-              </div>
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/20 ring-2 ring-white">
-                {user.name.substring(0, 2).toUpperCase()}
-              </div>
-            </div>
+              <button 
+                onClick={() => setShowProfileModal(true)}
+                className="flex items-center gap-4 pl-6 border-l border-slate-200 hover:opacity-80 transition-all cursor-pointer group"
+              >
+                <div className="text-right hidden lg:block">
+                  <p className="text-sm font-black text-slate-800 leading-none mb-1 group-hover:text-blue-600 transition-colors">{user.name}</p>
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 justify-end">
+                    {user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 
+                     user.role === 'SUB_SYNDIC' ? 'Subsíndico' :
+                     user.role === 'SUPER_ADMIN' ? 'Super Admin' :
+                     user.role === 'JANITOR' ? 'Zelador' :
+                     user.role === 'CONCIERGE' ? 'Porteiro' :
+                     user.role === 'SECURITY' ? 'Segurança' : 'Morador'}
+                    {user.role === 'SUB_SYNDIC' && (condo?.isSyndicAbsent || condo?.actingAdminId === user.id) && (
+                      <span className="bg-orange-500 text-white px-1.5 py-0.5 rounded text-[8px] animate-pulse">EM EXERCÍCIO</span>
+                    )}
+                  </p>
+                </div>
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/20 ring-2 ring-white">
+                  {user.name.substring(0, 2).toUpperCase()}
+                </div>
+              </button>
           </div>
         </header>
 
@@ -3476,12 +3828,14 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                               >
                                 Editar
                               </button>
-                              <button 
-                                onClick={() => handleDeleteResident(res.id, res.name)}
-                                className="text-red-500 hover:text-red-700 hover:underline text-sm font-bold"
-                              >
-                                Excluir
-                              </button>
+                              {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN' || user.id === condo?.adminId) && (
+                                <button 
+                                  onClick={() => handleDeleteResident(res.id, res.name)}
+                                  className="text-red-500 hover:text-red-700 hover:underline text-sm font-bold"
+                                >
+                                  Excluir
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3495,22 +3849,48 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
           {activeMenu === 'staff' && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="space-y-1">
-                  <h3 className="text-2xl font-bold text-primary">Equipe e Staff</h3>
-                  <p className="text-slate-500 text-sm">Gerencie os funcionários e prestadores de serviço do condomínio.</p>
+                  <h3 className="text-2xl font-bold text-primary">Gestão de Equipe e Diretoria</h3>
+                  <p className="text-slate-500 text-sm">Gerencie tanto o staff operacional quanto os membros eleitos do conselho.</p>
                 </div>
                 {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
                   <button 
                     onClick={() => {
-                      setNewStaff({ name: '', email: '', role: 'JANITOR', condoId: user.condoId || '', cpf: '000.000.000-00', login: '' });
+                      setNewStaff({ 
+                        name: '', 
+                        email: '', 
+                        role: staffTab === 'operational' ? 'JANITOR' : 'SUB_SYNDIC', 
+                        condoId: user.condoId || '', 
+                        cpf: '000.000.000-00', 
+                        login: '', 
+                        password: '',
+                        mandateStart: '',
+                        mandateEnd: '',
+                        electionMinuteUrl: ''
+                      });
                       setShowAddStaffModal(true);
                     }}
                     className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
                   >
-                    <Plus className="w-5 h-5" /> Adicionar Staff
+                    <Plus className="w-5 h-5" /> Adicionar {staffTab === 'operational' ? 'Staff' : 'Membro'}
                   </button>
                 )}
+              </div>
+
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl w-fit">
+                <button 
+                  onClick={() => setStaffTab('operational')}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${staffTab === 'operational' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Staff Operacional
+                </button>
+                <button 
+                  onClick={() => setStaffTab('board')}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${staffTab === 'board' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Conselho e Diretoria
+                </button>
               </div>
               
               <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 overflow-hidden">
@@ -3518,31 +3898,78 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Funcionário</th>
-                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Papel / Função</th>
-                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">E-mail</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">
+                          {staffTab === 'operational' ? 'Funcionário' : 'Membro'}
+                        </th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Função</th>
+                        {staffTab === 'board' && <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Mandato</th>}
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Contato</th>
                         <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {staff.map((u) => (
+                      {staff
+                        .filter(u => {
+                          const operationalRoles = ['JANITOR', 'CONCIERGE', 'SECURITY'];
+                          const boardRoles = ['CONDO_ADMIN', 'SUB_SYNDIC', 'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY'];
+                          return staffTab === 'operational' ? operationalRoles.includes(u.role) : boardRoles.includes(u.role);
+                        })
+                        .map((u) => (
                         <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 text-slate-800 font-bold">{u.name}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-primary font-black uppercase">
+                                {u.name.substring(0, 2)}
+                              </div>
+                              <span className="text-slate-800 font-bold">{u.name}</span>
+                            </div>
+                          </td>
                           <td className="px-6 py-4">
                              <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
                                 u.role === 'JANITOR' ? 'bg-emerald-100 text-emerald-600' :
                                 u.role === 'CONCIERGE' ? 'bg-purple-100 text-purple-600' :
                                 u.role === 'SECURITY' ? 'bg-red-100 text-red-600' :
                                 u.role === 'SUB_SYNDIC' ? 'bg-blue-100 text-blue-600' :
+                                u.role === 'CONDO_ADMIN' ? 'bg-amber-100 text-amber-600' :
+                                u.role === 'TREASURER' ? 'bg-cyan-100 text-cyan-600' :
                                 'bg-gray-100 text-gray-600'
                               }`}>
                                 {u.role === 'JANITOR' ? 'Zelador' :
                                  u.role === 'CONCIERGE' ? 'Porteiro' :
-                                 u.role === 'SECURITY' ? 'Rodante' : 
-                                 u.role === 'SUB_SYNDIC' ? 'Subsíndico' : u.role}
+                                 u.role === 'SECURITY' ? 'Segurança' : 
+                                 u.role === 'SUB_SYNDIC' ? 'Subsíndico' : 
+                                 u.role === 'CONDO_ADMIN' ? 'Síndico' :
+                                 u.role === 'TREASURER' ? 'Tesoureiro' :
+                                 u.role === 'FISCAL_COUNCIL' ? 'Cons. Fiscal' :
+                                 u.role === 'CONSULTATIVE_COUNCIL' ? 'Cons. Consultivo' :
+                                 u.role === 'SECRETARY' ? 'Secretário' : u.role}
                               </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-500 text-sm">{u.email}</td>
+                          {staffTab === 'board' && (
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-slate-700">
+                                  {u.mandateStart ? new Date(u.mandateStart).toLocaleDateString() : 'N/A'} - {u.mandateEnd ? new Date(u.mandateEnd).toLocaleDateString() : 'N/A'}
+                                </span>
+                                {u.mandateEnd && isBefore(parseISO(u.mandateEnd), addDays(new Date(), 30)) && isAfter(parseISO(u.mandateEnd), new Date()) && (
+                                  <span className="text-[9px] font-black text-amber-500 uppercase mt-1 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" /> Fim de mandato próximo
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-medium text-slate-500">{u.email}</span>
+                              {u.tempPassword && u.mustChangePassword && (
+                                <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1 mt-1">
+                                  <Key className="w-3 h-3" /> Senha Prov: {u.tempPassword}
+                                </span>
+                              )}
+                              {u.phone && <span className="text-[10px] text-slate-400">{u.phone}</span>}
+                            </div>
+                          </td>
                           <td className="px-6 py-4 text-right">
                             {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
                               <button 
@@ -3550,18 +3977,138 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                                   setSelectedStaffForEdit(u);
                                   setShowEditStaffModal(true);
                                 }}
-                                className="text-primary hover:underline text-sm font-bold"
+                                className="p-2 hover:bg-slate-100 rounded-xl text-primary transition-all"
                               >
-                                Editar
+                                <Edit className="w-4 h-4" />
                               </button>
                             )}
                           </td>
                         </tr>
                       ))}
-                      {staff.length === 0 && (
+                      {staff.filter(u => {
+                          const operationalRoles = ['JANITOR', 'CONCIERGE', 'SECURITY'];
+                          const boardRoles = ['CONDO_ADMIN', 'SUB_SYNDIC', 'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY'];
+                          return staffTab === 'operational' ? operationalRoles.includes(u.role) : boardRoles.includes(u.role);
+                        }).length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">
-                            Nenhum funcionário cadastrado ainda.
+                          <td colSpan={staffTab === 'board' ? 5 : 4} className="px-6 py-12 text-center text-slate-400 font-medium">
+                            Nenhum membro cadastrado nesta categoria.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeMenu === 'overtime' && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-2xl font-bold text-primary">Gestão de Horas Extras</h3>
+                  <p className="text-slate-500 text-sm">Controle e autorização de jornada prolongada da equipe.</p>
+                </div>
+                {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN' || ['JANITOR', 'CONCIERGE', 'SECURITY'].includes(user.role)) && (
+                  <button 
+                    onClick={() => {
+                      setNewOvertimeRequest({
+                        date: new Date().toISOString().split('T')[0],
+                        hours: 1,
+                        reason: '',
+                        status: 'PENDING',
+                        staffId: ['JANITOR', 'CONCIERGE', 'SECURITY'].includes(user.role) ? user.id : ''
+                      });
+                      setShowOvertimeModal(true);
+                    }}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Plus className="w-5 h-5" /> Solicitar Hora Extra
+                  </button>
+                )}
+              </div>
+
+              <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Funcionário</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Data / Horas</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Motivo</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {overtimeRequests
+                        .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                        .map((req) => (
+                        <tr key={req.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-[10px] text-primary font-black uppercase">
+                                {req.staffName.substring(0, 2)}
+                              </div>
+                              <span className="text-slate-800 font-bold">{req.staffName}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-700">{new Date(req.date).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-slate-400">{req.hours}h solicitadas</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 max-w-xs">
+                            <p className="text-xs text-slate-500 line-clamp-2">{req.reason}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                              req.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
+                              req.status === 'REJECTED' ? 'bg-red-100 text-red-600' :
+                              'bg-amber-100 text-amber-600'
+                            }`}>
+                              {req.status === 'APPROVED' ? 'Aprovada' :
+                               req.status === 'REJECTED' ? 'Recusada' : 'Pendente'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                             {req.status === 'PENDING' && (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') ? (
+                               <div className="flex justify-end gap-2">
+                                 <button 
+                                   onClick={() => handleApproveOvertime(req.id)}
+                                   className="p-2 hover:bg-emerald-50 rounded-xl text-emerald-600 transition-all"
+                                   title="Aprovar"
+                                 >
+                                   <CheckCircle2 className="w-5 h-5" />
+                                 </button>
+                                 <button 
+                                   onClick={() => {
+                                     const reason = window.prompt("Motivo da recusa:");
+                                     if (reason) handleRejectOvertime(req.id, reason);
+                                   }}
+                                   className="p-2 hover:bg-red-50 rounded-xl text-red-600 transition-all"
+                                   title="Recusar"
+                                 >
+                                   <Trash2 className="w-5 h-5" />
+                                 </button>
+                               </div>
+                             ) : (
+                               req.status !== 'PENDING' && (
+                                 <div className="flex flex-col items-end gap-1">
+                                   <span className="text-[9px] font-bold text-slate-400 italic">Por: {req.authorizedByName}</span>
+                                   {req.rejectionReason && <span className="text-[9px] text-red-400 font-medium">Motivo: {req.rejectionReason}</span>}
+                                 </div>
+                               )
+                             )}
+                          </td>
+                        </tr>
+                      ))}
+                      {overtimeRequests.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">
+                            Nenhuma solicitação de hora extra encontrada.
                           </td>
                         </tr>
                       )}
@@ -4402,6 +4949,328 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                       </div>
                     );
                   })}
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'elections' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-bold text-primary tracking-tight">Processo Eleitoral</h3>
+                    <p className="text-slate-500 text-sm">Votação online para Síndico e Conselhos, conforme Lei 14.309/22.</p>
+                  </div>
+                  {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                    <button 
+                      onClick={() => setShowAddElectionModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all outline-none"
+                    >
+                      <Plus className="w-5 h-5" /> Iniciar Eleição
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                      <h4 className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2">
+                        <Info className="w-4 h-4 text-blue-500" /> Regras e Sugestões
+                      </h4>
+                      <ul className="space-y-3 text-xs text-slate-500 leading-relaxed">
+                        <li className="flex gap-2">
+                          <Check className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                          <span><b>Adimplência:</b> Apenas condôminos em dia com as taxas podem votar (Art. 1.335 CC).</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <Check className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                          <span><b>Mandato:</b> Padrão de 2 anos, podendo ser renovado se aprovado.</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <Check className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                          <span><b>Segurança:</b> Votos são únicos e vinculados à unidade do morador.</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Histórico de Eleições</h4>
+                      {elections.map(election => (
+                        <div key={election.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:border-blue-100 transition-all cursor-pointer group">
+                           <div className="flex justify-between items-start mb-2">
+                             <h6 className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{election.title}</h6>
+                             <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                               election.status === 'OPEN' ? 'bg-green-100 text-green-600' :
+                               election.status === 'UPCOMING' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'
+                             }`}>
+                               {election.status}
+                             </span>
+                           </div>
+                           <p className="text-[10px] text-slate-400">Término: {new Date(election.endDate).toLocaleDateString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-2 space-y-6">
+                    {elections.filter(e => e.status === 'OPEN' || e.status === 'UPCOMING').map(election => {
+                      const electionCandidates = candidates.filter(c => c.electionId === election.id);
+                      const hasVoted = myVotes.some(v => v.electionId === election.id);
+                      const isAdimplente = !invoices.some(inv => inv.residentId === user.id && inv.status === 'OVERDUE');
+                      
+                      return (
+                        <div key={election.id} className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm overflow-hidden relative">
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+                            <div>
+                               <h4 className="text-xl font-black text-slate-800">{election.title}</h4>
+                               <p className="text-sm text-slate-500">{election.description}</p>
+                            </div>
+                            {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                              <button 
+                                onClick={() => {
+                                  setNewCandidate({...newCandidate, electionId: election.id});
+                                  setShowAddCandidateModal(true);
+                                }}
+                                className="text-xs font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-xl hover:bg-blue-100 transition-all"
+                              >
+                                + Adicionar Candidato
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {electionCandidates.length === 0 ? (
+                              <div className="md:col-span-2 py-12 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-100">
+                                <Users className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                                <p className="text-sm font-bold text-slate-400">Nenhum candidato registrado ainda.</p>
+                              </div>
+                            ) : (
+                              electionCandidates.map(candidate => {
+                                const totalVotes = electionCandidates.reduce((acc, c) => acc + (c.voteCount || 0), 0);
+                                const percentage = totalVotes > 0 ? ((candidate.voteCount || 0) / totalVotes) * 100 : 0;
+                                
+                                return (
+                                  <div key={candidate.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm group hover:border-blue-200 transition-all">
+                                    <div className="flex items-center gap-4 mb-6">
+                                      <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 text-xl font-black">
+                                        {candidate.name.substring(0, 2).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <h5 className="font-black text-slate-800">{candidate.name}</h5>
+                                        <p className="text-xs text-blue-600 font-bold">Candidato a Síndico</p>
+                                      </div>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mb-6 italic">"{candidate.proposal}"</p>
+                                    
+                                    <div className="space-y-3">
+                                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-blue-600 transition-all duration-1000" style={{ width: `${percentage}%` }} />
+                                      </div>
+                                      <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                        <span>{percentage.toFixed(1)}% dos votos</span>
+                                        <span className="text-slate-800">{candidate.voteCount || 0} votos</span>
+                                      </div>
+                                    </div>
+
+                                    {election.status === 'OPEN' && !hasVoted && (
+                                       <button 
+                                        disabled={!isAdimplente}
+                                        onClick={() => handleCastVote(election.id, candidate.id)}
+                                        className={`w-full mt-6 py-4 rounded-2xl font-black text-sm transition-all sm:scale-100 active:scale-95 ${
+                                          isAdimplente 
+                                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' 
+                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                        }`}
+                                       >
+                                         {isAdimplente ? 'Votar neste Candidato' : 'Inadimplente - Voto Bloqueado'}
+                                       </button>
+                                    )}
+                                    {hasVoted && (
+                                       <div className="mt-6 py-3 bg-green-50 text-green-600 rounded-2xl text-center text-xs font-bold border border-green-100">
+                                          Voto Computado ✓
+                                       </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          {!isAdimplente && election.status === 'OPEN' && !hasVoted && (
+                             <div className="mt-8 p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-4">
+                               <AlertCircle className="w-5 h-5 text-orange-600" />
+                               <p className="text-xs text-orange-800 font-medium">
+                                 Detectamos pendências financeiras em sua unidade. Regularize sua situação para habilitar o seu voto conforme determinação legal.
+                               </p>
+                             </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeMenu === 'commissions' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-bold text-primary tracking-tight">Comissões Consultivas</h3>
+                    <p className="text-slate-500 text-sm">Grupos de apoio à gestão para melhorias específicas no condomínio.</p>
+                  </div>
+                  {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                    <button 
+                      onClick={() => setShowAddCommissionModal(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all outline-none"
+                    >
+                      <Plus className="w-5 h-5" /> Criar Comissão
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  {/* Commissions List */}
+                  <div className="xl:col-span-1 space-y-4">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] px-2">Comissões Ativas</h4>
+                    {commissions.length === 0 ? (
+                      <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center">
+                        <Users className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                        <p className="text-sm font-bold text-slate-400">Nenhuma comissão ativa.</p>
+                      </div>
+                    ) : (
+                      commissions.map(commission => (
+                        <div key={commission.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all group relative">
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="bg-blue-50 w-12 h-12 rounded-2xl flex items-center justify-center text-blue-600">
+                              <Users className="w-6 h-6" />
+                            </div>
+                            {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                              <button 
+                                onClick={() => handleDeleteCommission(commission.id)}
+                                className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <h5 className="font-black text-slate-800 mb-1">{commission.name}</h5>
+                          <p className="text-xs text-slate-500 mb-4 line-clamp-2">{commission.description}</p>
+                          
+                          <div className="space-y-4">
+                             <div>
+                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Membros ({commission.memberIds.length})</p>
+                               <div className="flex -space-x-2 overflow-hidden">
+                                 {commission.memberIds.slice(0, 5).map(mId => {
+                                   const member = residents.find(r => r.id === mId) || staff.find(s => s.id === mId);
+                                   return (
+                                     <div key={mId} title={member?.name} className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600 border border-slate-200">
+                                       {member?.name.substring(0, 2).toUpperCase() || '??'}
+                                     </div>
+                                   );
+                                 })}
+                                 {commission.memberIds.length > 5 && (
+                                   <div className="flex items-center justify-center h-8 w-8 rounded-full ring-2 ring-white bg-slate-200 text-[10px] font-bold text-slate-600">
+                                     +{commission.memberIds.length - 5}
+                                   </div>
+                                 )}
+                               </div>
+                             </div>
+                             
+                             {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                               <button 
+                                 onClick={() => {
+                                   setNewCommissionAgenda({...newCommissionAgenda, commissionId: commission.id});
+                                   setShowAddCommissionAgendaModal(true);
+                                 }}
+                                 className="w-full py-3 bg-slate-50 text-slate-600 rounded-xl text-xs font-bold hover:bg-blue-50 hover:text-blue-600 transition-all border border-slate-100"
+                               >
+                                 Lançar Nova Pauta
+                               </button>
+                             )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Agendas (Pautas) & Voting */}
+                  <div className="xl:col-span-2 space-y-6">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] px-2">Pautas em Votação / Sugestões</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {commissionAgendas.length === 0 ? (
+                        <div className="md:col-span-2 bg-white/50 border-2 border-dashed border-slate-200 p-12 rounded-[2.5rem] text-center">
+                          <Target className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                          <p className="text-slate-400 font-bold">Sem pautas ou sugestões para votação no momento.</p>
+                        </div>
+                      ) : (
+                        commissionAgendas.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(agenda => {
+                          const commission = commissions.find(c => c.id === agenda.commissionId);
+                          const isMember = commission?.memberIds.includes(user.id) || user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN';
+                          const hasVoted = agenda.votes && agenda.votes[user.id] !== undefined;
+                          const totalVotes = agenda.votes ? Object.keys(agenda.votes).length : 0;
+                          
+                          return (
+                            <div key={agenda.id} className={`bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-full ${agenda.status === 'CLOSED' ? 'opacity-70' : ''}`}>
+                              <div className="flex items-center justify-between mb-4">
+                                <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ring-1 ring-blue-100">
+                                  {commission?.name || 'Comissão'}
+                                </span>
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${agenda.status === 'OPEN' ? 'text-green-500' : 'text-slate-400'}`}>
+                                  {agenda.status === 'OPEN' ? '🟢 Em Votação' : '⚪ Encerrada'}
+                                </span>
+                              </div>
+                              
+                              <h5 className="text-lg font-black text-slate-800 mb-2 leading-tight">{agenda.title}</h5>
+                              <p className="text-sm text-slate-500 mb-6 flex-grow">{agenda.description}</p>
+                              
+                              <div className="space-y-3 mt-auto pt-6 border-t border-slate-50">
+                                {agenda.options.map((option, idx) => {
+                                  const voteCount = Object.values(agenda.votes || {}).filter(v => v === idx).length;
+                                  const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
+                                  const isSelected = agenda.votes?.[user.id] === idx;
+                                  
+                                  return (
+                                    <button
+                                      key={idx}
+                                      disabled={!isMember || agenda.status === 'CLOSED' || hasVoted}
+                                      onClick={() => handleVoteInAgenda(agenda.id, idx)}
+                                      className={`w-full group relative overflow-hidden p-4 rounded-2xl border-2 transition-all text-left ${
+                                        isSelected 
+                                          ? 'border-blue-600 bg-blue-50' 
+                                          : 'border-slate-100 bg-slate-50 hover:border-blue-200'
+                                      } ${(!isMember || agenda.status === 'CLOSED') ? 'cursor-not-allowed opacity-80' : ''}`}
+                                    >
+                                      {/* Progress Bar Background */}
+                                      <div 
+                                        className="absolute inset-0 bg-blue-600/5 transition-all duration-1000" 
+                                        style={{ width: `${percentage}%` }}
+                                      />
+                                      
+                                      <div className="relative flex justify-between items-center">
+                                        <span className={`text-sm font-bold ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
+                                          {option}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                          {isSelected && <Check className="w-4 h-4 text-blue-600" />}
+                                          <span className="text-xs font-black text-slate-400">{voteCount}</span>
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                                
+                                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest pt-2">
+                                   <span>{totalVotes} Votos computados</span>
+                                   {hasVoted && <span className="text-blue-500">Voto Confirmado</span>}
+                                   {!isMember && <span className="text-orange-400">Apenas Membros</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -6197,16 +7066,20 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                 </div>
 
                 {Object.keys(typingUsers).length > 0 && (
-                  <div className="px-8 py-2 bg-white flex items-center gap-2">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="px-8 py-2 bg-white flex items-center gap-2 border-t border-slate-50"
+                  >
                     <div className="flex gap-1">
                       <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
                       <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.15s]" />
                       <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" />
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 italic">
-                      {Object.values(typingUsers).map((u: any) => u.name).join(', ')} {Object.keys(typingUsers).length === 1 ? 'está digitando...' : 'estão digitando...'}
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest italic">
+                      {Object.values(typingUsers).map((u: any) => u.name.split(' ')[0]).join(', ')} {Object.keys(typingUsers).length === 1 ? 'está escrevendo...' : 'estão escrevendo...'}
                     </p>
-                  </div>
+                  </motion.div>
                 )}
 
                 <form onSubmit={handleSendMessage} className="p-4 sm:p-8 bg-white border-t border-slate-100">
@@ -7254,6 +8127,99 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
 
       {/* Parking Modal */}
       <AnimatePresence>
+        {showOvertimeModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Solicitar Hora Extra</h3>
+                    <p className="text-xs text-slate-500">Preencha os detalhes para autorização.</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowOvertimeModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Funcionário</label>
+                  <select 
+                    value={newOvertimeRequest.staffId}
+                    disabled={['JANITOR', 'CONCIERGE', 'SECURITY'].includes(user.role)}
+                    onChange={(e) => setNewOvertimeRequest({...newOvertimeRequest, staffId: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-bold"
+                  >
+                    <option value="">Selecione o funcionário</option>
+                    {staff.filter(s => ['JANITOR', 'CONCIERGE', 'SECURITY'].includes(s.role)).map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.role === 'JANITOR' ? 'Zelador' : s.role === 'CONCIERGE' ? 'Porteiro' : 'Segurança'})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Data</label>
+                    <input 
+                      type="date"
+                      value={newOvertimeRequest.date}
+                      onChange={(e) => setNewOvertimeRequest({...newOvertimeRequest, date: e.target.value})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Horas</label>
+                    <input 
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      max="12"
+                      value={newOvertimeRequest.hours}
+                      onChange={(e) => setNewOvertimeRequest({...newOvertimeRequest, hours: Number(e.target.value)})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Motivo / Justificativa</label>
+                  <textarea 
+                    value={newOvertimeRequest.reason}
+                    onChange={(e) => setNewOvertimeRequest({...newOvertimeRequest, reason: e.target.value})}
+                    placeholder="Ex: Reforço para evento no salão de festas..."
+                    rows={3}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    onClick={() => setShowOvertimeModal(false)}
+                    className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    disabled={isLoading}
+                    onClick={handleRequestOvertime}
+                    className="flex-1 py-4 bg-primary text-white rounded-2xl font-black shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? 'Enviando...' : 'Enviar Solicitação'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showAddStaffModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddStaffModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
@@ -7295,14 +8261,59 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   <select 
                     value={newStaff.role}
                     onChange={(e) => setNewStaff({...newStaff, role: e.target.value as UserRole})}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-bold"
                   >
-                    <option value="JANITOR">Zelador</option>
-                    <option value="CONCIERGE">Porteiro</option>
-                    <option value="SECURITY">Rodante (Segurança)</option>
-                    <option value="SUB_SYNDIC">Subsíndico</option>
+                    <optgroup label="Operacional">
+                      <option value="JANITOR">Zelador</option>
+                      <option value="CONCIERGE">Porteiro</option>
+                      <option value="SECURITY">Rodante (Segurança)</option>
+                    </optgroup>
+                    <optgroup label="Diretoria / Conselho">
+                      <option value="CONDO_ADMIN">Síndico</option>
+                      <option value="SUB_SYNDIC">Subsíndico</option>
+                      <option value="TREASURER">Tesoureiro</option>
+                      <option value="FISCAL_COUNCIL">Conselho Fiscal</option>
+                      <option value="CONSULTATIVE_COUNCIL">Conselho Consultivo</option>
+                      <option value="SECRETARY">Secretário</option>
+                    </optgroup>
                   </select>
                 </div>
+
+                {['CONDO_ADMIN', 'SUB_SYNDIC', 'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY'].includes(newStaff.role) && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Informações de Mandato</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Início</label>
+                        <input 
+                          type="date" 
+                          value={newStaff.mandateStart} 
+                          onChange={(e) => setNewStaff({...newStaff, mandateStart: e.target.value})}
+                          className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fim</label>
+                        <input 
+                          type="date" 
+                          value={newStaff.mandateEnd} 
+                          onChange={(e) => setNewStaff({...newStaff, mandateEnd: e.target.value})}
+                          className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Ata de Eleição (Link/Referência)</label>
+                      <input 
+                        type="text" 
+                        placeholder="Link do PDF ou Ref. Documental"
+                        value={newStaff.electionMinuteUrl} 
+                        onChange={(e) => setNewStaff({...newStaff, electionMinuteUrl: e.target.value})}
+                        className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      />
+                    </div>
+                  </motion.div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
@@ -7324,6 +8335,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                       className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                     />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Senha</label>
+                  <input 
+                    type="password" 
+                    value={newStaff.password}
+                    onChange={(e) => setNewStaff({...newStaff, password: e.target.value})}
+                    placeholder="Defina uma senha" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
                 </div>
                 
                 <button 
@@ -7379,14 +8400,59 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   <select 
                     value={selectedStaffForEdit.role}
                     onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, role: e.target.value as UserRole})}
-                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-bold"
                   >
-                    <option value="JANITOR">Zelador</option>
-                    <option value="CONCIERGE">Porteiro</option>
-                    <option value="SECURITY">Rodante (Segurança)</option>
-                    <option value="SUB_SYNDIC">Subsíndico</option>
+                    <optgroup label="Operacional">
+                      <option value="JANITOR">Zelador</option>
+                      <option value="CONCIERGE">Porteiro</option>
+                      <option value="SECURITY">Rodante (Segurança)</option>
+                    </optgroup>
+                    <optgroup label="Diretoria / Conselho">
+                      <option value="CONDO_ADMIN">Síndico</option>
+                      <option value="SUB_SYNDIC">Subsíndico</option>
+                      <option value="TREASURER">Tesoureiro</option>
+                      <option value="FISCAL_COUNCIL">Conselho Fiscal</option>
+                      <option value="CONSULTATIVE_COUNCIL">Conselho Consultivo</option>
+                      <option value="SECRETARY">Secretário</option>
+                    </optgroup>
                   </select>
                 </div>
+
+                {['CONDO_ADMIN', 'SUB_SYNDIC', 'TREASURER', 'FISCAL_COUNCIL', 'CONSULTATIVE_COUNCIL', 'SECRETARY'].includes(selectedStaffForEdit.role) && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Informações de Mandato</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Início</label>
+                        <input 
+                          type="date" 
+                          value={selectedStaffForEdit.mandateStart || ''} 
+                          onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, mandateStart: e.target.value})}
+                          className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fim</label>
+                        <input 
+                          type="date" 
+                          value={selectedStaffForEdit.mandateEnd || ''} 
+                          onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, mandateEnd: e.target.value})}
+                          className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Ata de Eleição</label>
+                      <input 
+                        type="text" 
+                        placeholder="Link do PDF ou Ref. Documental"
+                        value={selectedStaffForEdit.electionMinuteUrl || ''} 
+                        onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, electionMinuteUrl: e.target.value})}
+                        className="w-full p-3 bg-white rounded-lg border border-blue-200 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      />
+                    </div>
+                  </motion.div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
@@ -8735,6 +9801,276 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
               <div className="pt-6 border-t border-slate-100 flex flex-col gap-2 bg-white">
                 <button onClick={handleCreateMinute} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20">Salvar Documento</button>
                 <button onClick={() => setShowAddMinuteModal(false)} className="w-full py-2 text-slate-400 font-bold">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Profile Management Modal */}
+        {showProfileModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowProfileModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden">
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black">
+                    {user.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">Meu Perfil</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{user.role}</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowProfileModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-8 space-y-6">
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex items-start gap-4">
+                    <Lock className="w-5 h-5 text-blue-600 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-black text-blue-900">Segurança da Conta</h4>
+                      <p className="text-xs text-blue-800/70">Mantenha sua senha atualizada para proteger seus dados e o acesso ao condomínio.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nova Senha</label>
+                      <input 
+                        type="password" 
+                        value={profilePassword.new}
+                        onChange={(e) => setProfilePassword({...profilePassword, new: e.target.value})}
+                        placeholder="••••••••"
+                        className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirmar Nova Senha</label>
+                      <input 
+                        type="password" 
+                        value={profilePassword.confirm}
+                        onChange={(e) => setProfilePassword({...profilePassword, confirm: e.target.value})}
+                        placeholder="••••••••"
+                        className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono" 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                   <button 
+                    onClick={handleUpdatePassword}
+                    disabled={isLoading || !profilePassword.new}
+                    className="flex-grow py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                   >
+                     {isLoading ? 'Salvando...' : 'Atualizar Minha Senha'}
+                   </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Create Election Modal */}
+        {showAddElectionModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddElectionModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
+                  <Gavel className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Nova Eleição</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título da Eleição</label>
+                  <input type="text" value={newElection.title} onChange={(e) => setNewElection({...newElection, title: e.target.value})} placeholder="Ex: Eleições Síndico 2026/28" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vincular a uma Comissão (Opcional)</label>
+                  <select 
+                    value={newElection.commissionId} 
+                    onChange={(e) => setNewElection({...newElection, commissionId: e.target.value})} 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200"
+                  >
+                    <option value="">Nenhuma Comissão</option>
+                    {commissions.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Início</label>
+                    <input type="date" value={newElection.startDate} onChange={(e) => setNewElection({...newElection, startDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Término</label>
+                    <input type="date" value={newElection.endDate} onChange={(e) => setNewElection({...newElection, endDate: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Duração do Mandato (Anos)</label>
+                  <select value={newElection.mandateYears} onChange={(e) => setNewElection({...newElection, mandateYears: Number(e.target.value)})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value={1}>1 Ano</option>
+                    <option value={2}>2 Anos (Recomendado)</option>
+                  </select>
+                </div>
+                <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer">
+                  <input type="checkbox" checked={newElection.allowProrogation} onChange={(e) => setNewElection({...newElection, allowProrogation: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
+                  <span className="text-sm font-bold text-slate-700">Permitir Prorrogação</span>
+                </label>
+
+                <div className="flex gap-3 pt-6">
+                  <button onClick={() => setShowAddElectionModal(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-slate-50 rounded-2xl">Cancelar</button>
+                  <button onClick={handleCreateElection} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg">Lançar Eleição</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Candidate Modal */}
+        {showAddCandidateModal && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddCandidateModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
+                  <Plus className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Novo Candidato</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Selecionar Usuário</label>
+                  <select value={newCandidate.userId} onChange={(e) => setNewCandidate({...newCandidate, userId: e.target.value})} className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <option value="">Selecione um morador/staff</option>
+                    {residents.map(r => <option key={r.id} value={r.id}>{r.name} - Un {r.unit}</option>)}
+                    {staff.map(s => <option key={s.id} value={s.id}>{s.name} - {s.role}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Proposta / Biografia</label>
+                  <textarea value={newCandidate.proposal} onChange={(e) => setNewCandidate({...newCandidate, proposal: e.target.value})} placeholder="Resuma as ideias do candidato..." className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
+                </div>
+
+                <div className="flex gap-3 pt-6">
+                  <button onClick={() => setShowAddCandidateModal(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-slate-50 rounded-2xl">Cancelar</button>
+                  <button onClick={handleAddCandidate} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg">Registrar Candidatura</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Create Commission Modal */}
+        {showAddCommissionModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddCommissionModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
+                  <Users className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Nova Comissão</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome da Comissão</label>
+                  <input type="text" value={newCommission.name} onChange={(e) => setNewCommission({...newCommission, name: e.target.value})} placeholder="Ex: Comissão de Obras" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Objetivo / Descrição</label>
+                  <textarea value={newCommission.description} onChange={(e) => setNewCommission({...newCommission, description: e.target.value})} placeholder="Para que serve este grupo?" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Selecionar Membros</label>
+                  <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-2xl p-2 space-y-1">
+                    {residents.map(r => (
+                      <label key={r.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl cursor-pointer transition-colors">
+                        <input 
+                          type="checkbox" 
+                          checked={newCommission.memberIds.includes(r.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setNewCommission({...newCommission, memberIds: [...newCommission.memberIds, r.id]});
+                            else setNewCommission({...newCommission, memberIds: newCommission.memberIds.filter(id => id !== r.id)});
+                          }}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-bold text-slate-700">{r.name} - Un {r.unit}</span>
+                      </label>
+                    ))}
+                    {staff.map(s => (
+                      <label key={s.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl cursor-pointer transition-colors">
+                        <input 
+                          type="checkbox" 
+                          checked={newCommission.memberIds.includes(s.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setNewCommission({...newCommission, memberIds: [...newCommission.memberIds, s.id]});
+                            else setNewCommission({...newCommission, memberIds: newCommission.memberIds.filter(id => id !== s.id)});
+                          }}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-bold text-slate-700">{s.name} - {s.role}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button onClick={() => setShowAddCommissionModal(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-slate-50 rounded-2xl transition-all">Cancelar</button>
+                  <button onClick={handleCreateCommission} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all">Criar Grupo</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Create Commission Agenda Modal */}
+        {showAddCommissionAgendaModal && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddCommissionAgendaModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
+                  <Target className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Lançar Nova Pauta</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Título da Pauta / Assunto</label>
+                  <input type="text" value={newCommissionAgenda.title} onChange={(e) => setNewCommissionAgenda({...newCommissionAgenda, title: e.target.value})} placeholder="Ex: Reforma da Fachada" className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Explicação / Contexto</label>
+                  <textarea value={newCommissionAgenda.description} onChange={(e) => setNewCommissionAgenda({...newCommissionAgenda, description: e.target.value})} placeholder="Dê detalhes para os votantes..." className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 h-24" />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Opções de Voto</label>
+                  <p className="text-[10px] text-slate-400 mb-2 italic">* Padronizado: Sim, Não, Abster</p>
+                  <div className="flex flex-wrap gap-2">
+                    {newCommissionAgenda.options.map((opt, i) => (
+                      <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest border border-blue-100">{opt}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-6">
+                  <button onClick={() => setShowAddCommissionAgendaModal(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-slate-50 rounded-2xl transition-all">Cancelar</button>
+                  <button onClick={handleCreateCommissionAgenda} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all">Publicar Pauta</button>
+                </div>
               </div>
             </motion.div>
           </div>
