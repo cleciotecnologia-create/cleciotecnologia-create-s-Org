@@ -14,7 +14,7 @@ service cloud.firestore {
     //   - name: string (required, size 1-100)
     //   - cpf: string (optional)
     //   - login: string (optional)
-    //   - role: string (required, enum: SUPER_ADMIN, CONDO_ADMIN, RESIDENT)
+    //   - role: string (required, enum: SUPER_ADMIN, CONDO_ADMIN, RESIDENT, JANITOR, CONCIERGE, SECURITY)
     //   - condoId: string (optional, required if role != SUPER_ADMIN)
     //   - avatarUrl: string (optional, size < 500)
     //
@@ -73,7 +73,10 @@ service cloud.firestore {
     }
 
     function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+      return dateStr is string && (
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$") ||
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$")
+      );
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -94,15 +97,31 @@ service cloud.firestore {
     function isCondoAdmin(condoId) {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CONDO_ADMIN' && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId;
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId &&
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CONDO_ADMIN' ||
+          (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUB_SYNDIC' &&
+            (
+              get(/databases/$(database)/documents/condos/$(condoId)).data.get('isSyndicAbsent', false) == true ||
+              get(/databases/$(database)/documents/condos/$(condoId)).data.get('actingAdminId', '') == request.auth.uid
+            )
+          )
+        );
+    }
+
+    function isStaff(condoId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CONDO_ADMIN', 'SUB_SYNDIC', 'JANITOR', 'CONCIERGE', 'SECURITY'];
     }
 
     function isResident(condoId) {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'RESIDENT' && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId;
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.condoId == condoId &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'RESIDENT';
     }
 
     // ===============================================================
@@ -110,13 +129,14 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'login', 'role', 'condoId', 'avatarUrl', 'mustChangePassword', 'tempPassword', 'createdAt']) &&
-             data.id is string && data.id.size() > 0 &&
+      return hasOnlyAllowedFields(['id', 'email', 'name', 'cpf', 'phone', 'login', 'role', 'condoId', 'avatarUrl', 'mustChangePassword', 'tempPassword', 'createdAt']) &&
+             (!('id' in data) || (data.id is string && data.id.size() > 0)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              (!('cpf' in data) || (data.cpf is string && data.cpf.size() > 0)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() > 0)) &&
              (!('login' in data) || (data.login is string && data.login.size() > 0)) &&
-             data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'RESIDENT'] &&
+             data.role in ['SUPER_ADMIN', 'CONDO_ADMIN', 'SUB_SYNDIC', 'RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY'] &&
              (!('condoId' in data) || (data.condoId is string && data.condoId.size() > 0)) &&
              (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 500)) &&
              (!('mustChangePassword' in data) || data.mustChangePassword is bool) &&
@@ -125,7 +145,7 @@ service cloud.firestore {
     }
 
     function isValidCondo(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'slug', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'trialEndsAt', 'adminId', 'createdAt']) &&
+      return hasOnlyAllowedFields(['id', 'name', 'slug', 'address', 'city', 'units', 'planId', 'subscriptionStatus', 'trialEndsAt', 'adminId', 'actingAdminId', 'isSyndicAbsent', 'createdAt']) &&
              data.id is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.slug is string && data.slug.size() > 0 &&
@@ -136,6 +156,8 @@ service cloud.firestore {
              data.subscriptionStatus in ['ACTIVE', 'PAST_DUE', 'CANCELED', 'TRIAL'] &&
              (!('trialEndsAt' in data) || isValidDateString(data.trialEndsAt)) &&
              data.adminId is string &&
+             (!('actingAdminId' in data) || data.actingAdminId is string) &&
+             (!('isSyndicAbsent' in data) || data.isSyndicAbsent is bool) &&
              isValidDateString(data.createdAt);
     }
 
@@ -162,13 +184,16 @@ service cloud.firestore {
     }
 
     function isValidOccurrence(data) {
-      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'title', 'description', 'status', 'createdAt']) &&
-             data.id is string &&
+      return hasOnlyAllowedFields(['id', 'condoId', 'residentId', 'title', 'description', 'category', 'status', 'assignedTo', 'assignedByName', 'createdAt', 'updatedAt', 'resolvedAt']) &&
+             (!('id' in data) || data.id is string) &&
              data.condoId is string &&
              data.residentId is string &&
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
              data.description is string && data.description.size() < 1000 &&
+             (!('category' in data) || data.category in ['NOISE', 'LEAK', 'ELECTRICAL', 'SECURITY', 'MAINTENANCE', 'OTHER']) &&
              data.status in ['OPEN', 'IN_PROGRESS', 'RESOLVED'] &&
+             (!('assignedTo' in data) || data.assignedTo is string) &&
+             (!('assignedByName' in data) || data.assignedByName is string) &&
              isValidDateString(data.createdAt);
     }
 
@@ -189,7 +214,7 @@ service cloud.firestore {
              data.userId is string &&
              data.userName is string &&
              data.action is string &&
-             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'INVOICE', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE', 'MOVING', 'PARKING', 'TAG', 'COMPLAINT', 'OTHER'] &&
+             data.resourceType in ['RESIDENT', 'CONDO', 'PAYMENT', 'INVOICE', 'OCCURRENCE', 'VISITOR', 'ASSEMBLY', 'MAINTENANCE', 'MOVING', 'PARKING', 'TAG', 'COMPLAINT', 'CONDO_SETTINGS', 'OTHER'] &&
              (!('resourceId' in data) || data.resourceId is string) &&
              (!('details' in data) || data.details is string) &&
              isValidDateString(data.timestamp);
@@ -254,6 +279,19 @@ service cloud.firestore {
              data.frequency in ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] &&
              isValidDateString(data.nextDueDate) &&
              data.status in ['PENDING', 'COMPLETED', 'OVERDUE'];
+    }
+
+    function isValidInvoice(data) {
+      return (data.keys().hasAll(['id']) ? data.id is string : true) &&
+             data.condoId is string &&
+             data.residentId is string &&
+             data.amount is number &&
+             isValidDateString(data.dueDate) &&
+             data.status in ['PAID', 'PENDING', 'OVERDUE'] &&
+             data.type in ['CONDO_FEE', 'RESERVE_FUND', 'EXTRA', 'GAS'] &&
+             data.description is string &&
+             (!('paymentDate' in data) || isValidDateString(data.paymentDate)) &&
+             (!('items' in data) || data.items is list);
     }
 
     function isValidCondoScore(data) {
@@ -333,7 +371,7 @@ service cloud.firestore {
              (data.keys().hasAll(['condoId']) ? data.condoId is string : true) &&
              data.residentId is string &&
              data.areaId is string &&
-             data.status in ['PENDING', 'APPROVED', 'DENIED', 'CANCELLED'] &&
+             data.status in ['PENDING', 'APPROVED', 'DENIED', 'CANCELLED', 'CANCELED'] &&
              isValidDateString(data.createdAt);
     }
 
@@ -356,6 +394,12 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
+    match /saas_audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && isAdmin() && isValidAuditLog(request.resource.data);
+      allow update, delete: if false;
+    }
+
     match /users/{userId} {
       // Users can read their own data. Super Admins can read all.
       allow read: if isOwner(userId) || isAdmin() || (isAuthenticated() && getUserData().role == 'CONDO_ADMIN' && getUserData().condoId == resource.data.condoId);
@@ -369,21 +413,21 @@ service cloud.firestore {
                       (
                         (isOwner(userId) && request.resource.data.role != 'SUPER_ADMIN') || 
                         isAdmin() ||
-                        (getUserData().role == 'CONDO_ADMIN' && request.resource.data.condoId == getUserData().condoId && request.resource.data.role == 'RESIDENT')
+                        (getUserData().role == 'CONDO_ADMIN' && request.resource.data.condoId == getUserData().condoId && request.resource.data.role in ['RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY'])
                       );
       
       // Update:
       // 1. User updating their own profile (cannot change their role)
       // 2. SUPER_ADMIN updating any user
-      // 3. CONDO_ADMIN updating a RESIDENT for their condo
+      // 3. CONDO_ADMIN updating a RESIDENT or STAFF for their condo
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
                       (
                         (isOwner(userId) && request.resource.data.role == resource.data.role) || 
                         isAdmin() ||
-                        (getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role == 'RESIDENT')
+                        (getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role in ['RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY'])
                       );
       
-      allow delete: if isAdmin() || (isAuthenticated() && getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role == 'RESIDENT');
+      allow delete: if isAdmin() || (isAuthenticated() && getUserData().role == 'CONDO_ADMIN' && resource.data.condoId == getUserData().condoId && resource.data.role in ['RESIDENT', 'JANITOR', 'CONCIERGE', 'SECURITY']);
     }
 
     match /condos/{condoId} {
@@ -400,8 +444,8 @@ service cloud.firestore {
     }
 
     match /condos/{condoId}/residents/{residentId} {
-      // Read: SUPER_ADMIN, CONDO_ADMIN of this condo, or the resident themselves
-      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && request.auth.uid == residentId);
+      // Read: SUPER_ADMIN, Condo Staff, or the resident themselves
+      allow read: if isAdmin() || isStaff(condoId) || (isResident(condoId) && request.auth.uid == residentId);
       
       // Write: Only SUPER_ADMIN or CONDO_ADMIN of this condo
       allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidResident(request.resource.data);
@@ -410,33 +454,33 @@ service cloud.firestore {
 
     match /condos/{condoId}/occurrences/{occurrenceId} {
       // Read: Any authorized user of the condo
-      allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
+      allow read: if isAdmin() || isStaff(condoId) || isResident(condoId);
       
-      // Create: CONDO_ADMIN or RESIDENT of the condo
-      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && 
+      // Create: Admin, Staff or RESIDENT of the condo
+      allow create: if isAuthenticated() && (isAdmin() || isStaff(condoId) || isResident(condoId)) && 
                       isValidOccurrence(request.resource.data) && 
                       request.resource.data.condoId == condoId &&
                       (isResident(condoId) ? request.resource.data.residentId == request.auth.uid : true);
       
-      // Update: CONDO_ADMIN (all) or RESIDENT (only their own)
+      // Update: Admin, Staff (all) or RESIDENT (only their own)
       allow update: if isAuthenticated() && isValidOccurrence(request.resource.data) && 
-                      (isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
+                      (isAdmin() || isStaff(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
       
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
     match /condos/{condoId}/visitors/{visitorId} {
-      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && (resource == null || resource.data.residentId == request.auth.uid));
-      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && 
+      allow read: if isAdmin() || isStaff(condoId) || (isResident(condoId) && (resource == null || resource.data.residentId == request.auth.uid));
+      allow create: if isAuthenticated() && (isAdmin() || isStaff(condoId) || isResident(condoId)) && 
                       request.resource.data.condoId == condoId &&
                       (isResident(condoId) ? request.resource.data.residentId == request.auth.uid : true);
-      allow update: if isAuthenticated() && (isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
+      allow update: if isAuthenticated() && (isAdmin() || isStaff(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid));
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
     match /condos/{condoId}/accessLogs/{logId} {
-      allow read: if isAdmin() || isCondoAdmin(condoId);
-      allow create: if isAdmin() || isCondoAdmin(condoId);
+      allow read: if isAdmin() || isStaff(condoId);
+      allow create: if isAdmin() || isStaff(condoId);
     }
 
     match /condos/{condoId}/messages/{messageId} {
@@ -450,7 +494,7 @@ service cloud.firestore {
 
     match /condos/{condoId}/auditLogs/{logId} {
       allow read: if isAdmin() || isCondoAdmin(condoId);
-      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId)) && 
+      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId) || isResident(condoId)) && 
                       isValidAuditLog(request.resource.data) &&
                       request.resource.data.condoId == condoId &&
                       request.resource.data.userId == request.auth.uid;
@@ -458,9 +502,9 @@ service cloud.firestore {
     }
 
     match /condos/{condoId}/packages/{packageId} {
-      allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
-      allow create: if (isAdmin() || isCondoAdmin(condoId)) && isValidPackage(request.resource.data);
-      allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidPackage(request.resource.data);
+      allow read: if isAdmin() || isStaff(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create: if (isAdmin() || isStaff(condoId)) && isValidPackage(request.resource.data);
+      allow update: if (isAdmin() || isStaff(condoId)) && isValidPackage(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
@@ -471,8 +515,14 @@ service cloud.firestore {
     }
 
     match /condos/{condoId}/maintenance/{taskId} {
-      allow read: if isAdmin() || isCondoAdmin(condoId);
-      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMaintenanceTask(request.resource.data);
+      allow read: if isAdmin() || isStaff(condoId);
+      allow create, update: if (isAdmin() || isStaff(condoId)) && isValidMaintenanceTask(request.resource.data);
+      allow delete: if isAdmin() || isCondoAdmin(condoId);
+    }
+
+    match /condos/{condoId}/invoices/{invoiceId} {
+      allow read: if isAdmin() || isStaff(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid);
+      allow create, update: if (isAdmin() || isCondoAdmin(condoId)) && isValidInvoice(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
@@ -518,14 +568,14 @@ service cloud.firestore {
 
     match /condos/{condoId}/reservations/{reservationId} {
       allow read: if isAdmin() || isCondoAdmin(condoId) || isResident(condoId);
-      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && isValidReservation(request.resource.data);
+      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId) || isResident(condoId)) && isValidReservation(request.resource.data);
       allow update: if (isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && resource.data.residentId == request.auth.uid)) && isValidReservation(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }
 
     match /condos/{condoId}/movingRequests/{requestId} {
       allow read: if isAdmin() || isCondoAdmin(condoId) || (isResident(condoId) && (resource == null || resource.data.residentId == request.auth.uid));
-      allow create: if isAuthenticated() && (isCondoAdmin(condoId) || isResident(condoId)) && isValidMovingRequest(request.resource.data);
+      allow create: if isAuthenticated() && (isAdmin() || isCondoAdmin(condoId) || isResident(condoId)) && isValidMovingRequest(request.resource.data);
       allow update: if (isAdmin() || isCondoAdmin(condoId)) && isValidMovingRequest(request.resource.data);
       allow delete: if isAdmin() || isCondoAdmin(condoId);
     }

@@ -16,10 +16,11 @@ export interface CameraAction {
 
 class CameraService {
   private mockCameras: CameraStream[] = [
-    { id: 'cam-1', name: 'Entrada Principal', url: 'https://picsum.photos/seed/entry/800/450', status: 'ONLINE', model: 'Hikvision DS-2CD', lastEvent: 'Movimento há 2min' },
-    { id: 'cam-2', name: 'Garagem G1', url: 'https://picsum.photos/seed/garage/800/450', status: 'ONLINE', model: 'Intelbras VIP 1230', lastEvent: 'Sem eventos' },
-    { id: 'cam-3', name: 'Piscina', url: 'https://picsum.photos/seed/pool/800/450', status: 'OFFLINE', model: 'Dahua IPC-HFW', lastEvent: 'Perda de sinal há 1h' },
-    { id: 'cam-4', name: 'Salão de Festas', url: 'https://picsum.photos/seed/party/800/450', status: 'ONLINE', model: 'Hikvision DS-2CD', lastEvent: 'Movimento há 10min' },
+    { id: 'cam-1', name: 'Portaria Principal', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', status: 'ONLINE', model: 'Hikvision DS-2CD (HLS)', lastEvent: 'Movimento detectado há 12s' },
+    { id: 'cam-2', name: 'Garagem G1', url: 'https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8', status: 'ONLINE', model: 'Intelbras VIP 1230', lastEvent: 'Livre' },
+    { id: 'cam-3', name: 'Piscina / Área Lazer', url: 'https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8', status: 'ONLINE', model: 'Dahua IPC-HFW', lastEvent: 'Sem eventos' },
+    { id: 'cam-4', name: 'Salão de Festas', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', status: 'ONLINE', model: 'Hikvision DS-2CD', lastEvent: 'Movimento há 10min' },
+    { id: 'cam-5', name: 'Corredor Bloco A', url: 'https://picsum.photos/seed/corridor/800/450', status: 'OFFLINE', model: 'Genérico IP Cam', lastEvent: 'Perda de sinal' },
   ];
 
   async getCameras(): Promise<CameraStream[]> {

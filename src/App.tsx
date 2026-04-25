@@ -4,7 +4,7 @@ import {
   Home, Map as MapIcon, Copyright, Search, SlidersHorizontal, Star, 
   Mail as MailIcon,
   DollarSign, Filter, CheckCircle2, ChevronRight, LayoutDashboard, 
-  MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus,
+  MessageSquare, Calendar, CreditCard, LogOut, Menu, X, UserPlus, Globe, ShieldCheck,
   ArrowRight, ArrowLeft, Smartphone, BarChart3, Settings, QrCode, History, User as UserIcon,
   Megaphone, Package as PackageIcon, FileText, PieChart, Gavel, Wrench, Camera, ShoppingBag,
   TrendingUp, Activity, Zap, Clock, ChevronLeft, MoreVertical, Send, Trash2, Edit, Eye, Download,
@@ -13,6 +13,7 @@ import {
   Truck, Tag, Car, Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ReactPlayer from 'react-player';
 import { QRCodeSVG } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -35,7 +36,7 @@ import {
 import { format, addDays, isAfter, isBefore, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
-  User as AppUser, Condo, Resident, Visitor, Occurrence, Reservation, 
+  User as AppUser, UserRole, Condo, Resident, Visitor, Occurrence, Reservation, 
   ChatMessage, AuditLog, PLANS, Plan, Announcement, Package, Invoice,
   Assembly, MaintenanceTask, CondoScore, ResidentRisk, GasReading,
   Infraction, Minute, MovingRequest, ParkingSlot, AccessTag, CashFlowEntry, Complaint
@@ -67,6 +68,7 @@ import {
   orderBy,
   addDoc,
   deleteDoc,
+  updateDoc,
   deleteField
 } from 'firebase/firestore';
 
@@ -511,6 +513,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [assemblies, setAssemblies] = useState<Assembly[]>([]);
@@ -541,9 +544,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     date: new Date().toISOString().split('T')[0]
   });
   const [cameras, setCameras] = useState<CameraStream[]>([]);
+  const [selectedCamera, setSelectedCamera] = useState<CameraStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCamsLoading, setIsCamsLoading] = useState(false);
   const [cameraViewTab, setCameraViewTab] = useState<'monitoring' | 'settings' | 'api'>('monitoring');
+  const [staff, setStaff] = useState<AppUser[]>([]);
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [showEditStaffModal, setShowEditStaffModal] = useState(false);
+  const [selectedStaffForEdit, setSelectedStaffForEdit] = useState<AppUser | null>(null);
+  const [newStaff, setNewStaff] = useState({ name: '', email: '', role: 'JANITOR' as UserRole, condoId: user.condoId || '', cpf: '', login: '' });
   const [cameraConfig, setCameraConfig] = useState({
     ip: '192.168.1.100',
     httpPort: 80,
@@ -1147,6 +1156,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       setComplaints(snap.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/complaints`));
 
+    const usersRef = collection(db, 'users');
+    const staffQuery = query(usersRef, where('condoId', '==', user.condoId));
+    const unsubStaff = onSnapshot(staffQuery, (snap) => {
+      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)).filter(u => ['JANITOR', 'CONCIERGE', 'SECURITY', 'SUB_SYNDIC'].includes(u.role)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users`));
+
+    const reservationsRef = collection(db, 'condos', user.condoId, 'reservations');
+    let reservationsQuery = query(reservationsRef, orderBy('createdAt', 'desc'), limit(50));
+    if (user.role === 'RESIDENT') {
+      reservationsQuery = query(reservationsRef, where('residentId', '==', user.id), orderBy('createdAt', 'desc'), limit(50));
+    }
+    const unsubReservations = onSnapshot(reservationsQuery, (snap) => {
+      setReservations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Reservation)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `condos/${user.condoId}/reservations`));
+
     const risksRef = collection(db, 'condos', user.condoId, 'residentRisks');
     let unsubRisks = () => {};
     if (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') {
@@ -1356,6 +1380,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       unsubTags();
       unsubCashFlow();
       unsubComplaints();
+      unsubStaff();
+      unsubReservations();
     };
   }, [user.condoId, user.id, user.name]);
 
@@ -1586,6 +1612,93 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     }
   };
 
+  const handleCreateStaff = async () => {
+    if (!user?.condoId || !newStaff.name || !newStaff.email) {
+      alert("Nome e e-mail são obrigatórios.");
+      return;
+    }
+    
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+    setIsLoading(true);
+
+    try {
+      const userRef = doc(collection(db, 'users'));
+      const staffData: AppUser = {
+        id: userRef.id,
+        name: newStaff.name.trim(),
+        email: newStaff.email.trim().toLowerCase(),
+        role: newStaff.role,
+        condoId: user.condoId,
+        cpf: newStaff.cpf.trim() || '000.000.000-00',
+        login: newStaff.login.trim() || newStaff.email.split('@')[0],
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(userRef, sanitizeData(staffData));
+      await createAuditLog('Cadastrou novo staff', 'CONDO', userRef.id, `Staff: ${newStaff.name}, Cargo: ${newStaff.role}`);
+
+      alert("Membro da equipe cadastrado com sucesso!");
+      setShowAddStaffModal(false);
+      setNewStaff({ name: '', email: '', role: 'JANITOR', condoId: user.condoId, cpf: '', login: '' });
+    } catch (err: any) {
+      console.error("Erro ao adicionar staff:", err);
+      handleFirestoreError(err, OperationType.CREATE, `users`);
+    } finally {
+      setIsLoading(false);
+      isSubmitting.current = false;
+    }
+  };
+
+  const handleUpdateStaff = async () => {
+    if (!user?.condoId || !selectedStaffForEdit) return;
+    
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+    setIsLoading(true);
+
+    try {
+      const staffRef = doc(db, 'users', selectedStaffForEdit.id);
+      const updatedStaff = {
+        ...selectedStaffForEdit,
+        name: selectedStaffForEdit.name.trim(),
+        email: selectedStaffForEdit.email.trim().toLowerCase(),
+        cpf: selectedStaffForEdit.cpf?.trim() || '000.000.000-00',
+        login: selectedStaffForEdit.login?.trim() || selectedStaffForEdit.email.split('@')[0]
+      };
+
+      await setDoc(staffRef, sanitizeData(updatedStaff), { merge: true });
+      createAuditLog('Atualizou dados de staff', 'CONDO', selectedStaffForEdit.id, `Staff: ${selectedStaffForEdit.name}`, user.condoId);
+      setShowEditStaffModal(false);
+      setSelectedStaffForEdit(null);
+      alert('Staff atualizado com sucesso!');
+    } catch (err) {
+      console.error("Erro ao atualizar staff:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${selectedStaffForEdit.id}`);
+    } finally {
+      setIsLoading(false);
+      isSubmitting.current = false;
+    }
+  };
+
+  const handleDeleteStaff = async (id: string, name: string) => {
+    if (!user?.condoId) return;
+    if (!window.confirm(`Deseja realmente remover ${name} da equipe? Esta ação não pode ser desfeita.`)) return;
+
+    setIsLoading(true);
+    try {
+      const staffRef = doc(db, 'users', id);
+      await deleteDoc(staffRef);
+      await createAuditLog('Removeu staff', 'CONDO', id, `Staff: ${name}`, user.condoId);
+      alert('Membro da equipe removido com sucesso!');
+    } catch (err) {
+      console.error("Erro ao remover staff:", err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${id}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleCleanDuplicateResidents = async () => {
     if (!user?.condoId || residents.length === 0) return;
     if (!window.confirm("Essa ferramenta irá verificar e remover moradores duplicados (mesmo CPF/E-mail/Login na mesma Unidade/Bloco). Deseja continuar?")) return;
@@ -1667,7 +1780,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
       await createAuditLog('Autorizou novo visitante', 'VISITOR', visitorRef.id, `Visitante: ${newVisitor.name}, Tipo: ${newVisitor.type}`);
       
       setVisitorSuccess(visitorData);
-      setNewVisitor({ name: '', type: 'VISITOR', validUntil: '' });
+      setNewVisitor({ name: '', type: 'VISITOR', validUntil: '', carPlate: '', carModel: '' });
       setShowQRPreview(false);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/visitors`);
@@ -1950,17 +2063,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const invoicesRef = collection(db, 'condos', user.condoId, 'invoices');
-      const docRef = await addDoc(invoicesRef, sanitizeData({
+      const docRef = doc(invoicesRef);
+      const invoiceData = {
         ...newInvoice,
+        id: docRef.id,
         amount: Number(newInvoice.amount),
         condoId: user.condoId,
         createdAt: new Date().toISOString()
-      }));
+      };
       
-      const invoice = { id: docRef.id, ...newInvoice, amount: Number(newInvoice.amount), condoId: user.condoId, createdAt: new Date().toISOString() } as Invoice;
+      await setDoc(docRef, sanitizeData(invoiceData));
       
       // Auto-notify resident
-      await handleNotifyBoleto(invoice);
+      await handleNotifyBoleto(invoiceData as Invoice);
 
       setShowAddInvoiceModal(false);
       setNewInvoice({
@@ -1970,7 +2085,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         description: 'Taxa Condominial',
         status: 'PENDING'
       });
-      createAuditLog('Boleto gerado', 'PAYMENT', user.condoId);
+      createAuditLog('Boleto gerado', 'PAYMENT', docRef.id);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/invoices`);
     } finally {
@@ -1986,14 +2101,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const announcementsRef = collection(db, 'condos', user.condoId, 'announcements');
-      const docRef = await addDoc(announcementsRef, sanitizeData({
+      const docRef = doc(announcementsRef);
+      const announcementData = {
         ...newAnnouncement,
+        id: docRef.id,
         condoId: user.condoId,
         authorName: user.name,
         createdAt: new Date().toISOString()
-      }));
+      };
       
-      const announcement = { id: docRef.id, ...newAnnouncement, condoId: user.condoId, authorName: user.name, createdAt: new Date().toISOString() } as Announcement;
+      await setDoc(docRef, sanitizeData(announcementData));
+      
+      const announcement = announcementData as Announcement;
       
       // Auto-notify all residents
       await handleNotifyAllAnnouncements(announcement);
@@ -2016,16 +2135,21 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const occurrencesRef = collection(db, 'condos', user.condoId, 'occurrences');
-      await addDoc(occurrencesRef, {
+      const docRef = doc(occurrencesRef);
+      const occurrenceData: Occurrence = {
+        id: docRef.id,
         ...newOccurrence,
         condoId: user.condoId,
         residentId: user.id,
         status: 'OPEN',
         createdAt: new Date().toISOString()
-      });
+      };
+      
+      await setDoc(docRef, occurrenceData);
+      
       setShowAddOccurrenceModal(false);
       setNewOccurrence({ title: '', description: '', category: 'OTHER' });
-      createAuditLog('Criou ocorrência', 'OCCURRENCE');
+      createAuditLog('Criou ocorrência', 'OCCURRENCE', docRef.id, `Título: ${occurrenceData.title}`);
       alert('Ocorrência registrada com sucesso!');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/occurrences`);
@@ -2042,14 +2166,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const reservationsRef = collection(db, 'condos', user.condoId, 'reservations');
-      await addDoc(reservationsRef, sanitizeData({
+      const docRef = doc(reservationsRef);
+      const reservationData = {
         ...newReservation,
+        id: docRef.id,
         condoId: user.condoId,
         residentId: user.id,
         residentName: user.name,
         status: 'PENDING',
         createdAt: new Date().toISOString()
-      }));
+      };
+
+      await setDoc(docRef, sanitizeData(reservationData));
+      
       setShowAddReservationModal(false);
       setNewReservation({
         areaId: '',
@@ -2058,7 +2187,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         startTime: '08:00',
         endTime: '10:00'
       });
-      createAuditLog('Criou reserva', 'OTHER', undefined, `Área: ${newReservation.areaName}`);
+      createAuditLog('Criou reserva', 'OTHER', docRef.id, `Área: ${newReservation.areaName}`);
       alert('Sua solicitação de reserva foi enviada e aguarda aprovação.');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/reservations`);
@@ -2075,11 +2204,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const assembliesRef = collection(db, 'condos', user.condoId, 'assemblies');
-      const docRef = await addDoc(assembliesRef, sanitizeData({
+      const docRef = doc(assembliesRef);
+      const assemblyData = {
         ...newAssembly,
+        id: docRef.id,
         condoId: user.condoId,
         createdAt: new Date().toISOString()
-      }));
+      };
+      
+      await setDoc(docRef, sanitizeData(assemblyData));
+      
       setShowAddAssemblyModal(false);
       setNewAssembly({
         title: '',
@@ -2106,11 +2240,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const maintenanceRef = collection(db, 'condos', user.condoId, 'maintenance');
-      const docRef = await addDoc(maintenanceRef, sanitizeData({
+      const docRef = doc(maintenanceRef);
+      const maintenanceData = {
         ...newMaintenanceTask,
+        id: docRef.id,
         condoId: user.condoId,
         createdAt: new Date().toISOString()
-      }));
+      };
+      
+      await setDoc(docRef, sanitizeData(maintenanceData));
+      
       setShowAddMaintenanceModal(false);
       setNewMaintenanceTask({
         title: '',
@@ -2138,14 +2277,18 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     const resident = residents.find(r => r.id === newInfraction.residentId);
     try {
       const infractionsRef = collection(db, 'condos', user.condoId, 'infractions');
-      const docRef = await addDoc(infractionsRef, sanitizeData({
+      const docRef = doc(infractionsRef);
+      const infractionData = {
         ...newInfraction,
+        id: docRef.id,
         residentName: resident?.name || 'Desconhecido',
         unit: resident?.unit || '',
         condoId: user.condoId,
         status: 'PENDING',
         createdAt: new Date().toISOString()
-      }));
+      };
+      
+      await setDoc(docRef, sanitizeData(infractionData));
       
       // Award negative points
       if (newInfraction.type === 'FINE') {
@@ -2173,11 +2316,15 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const minutesRef = collection(db, 'condos', user.condoId, 'minutes');
-      const docRef = await addDoc(minutesRef, sanitizeData({
+      const docRef = doc(minutesRef);
+      const minuteData = {
         ...newMinute,
+        id: docRef.id,
         condoId: user.condoId,
         createdAt: new Date().toISOString()
-      }));
+      };
+      
+      await setDoc(docRef, sanitizeData(minuteData));
       setShowAddMinuteModal(false);
       setNewMinute({ title: '', content: '', assemblyId: '' });
       createAuditLog('Criou ata/documento', 'OTHER', docRef.id, `Título: ${newMinute.title}`);
@@ -2234,15 +2381,20 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const movingRef = collection(db, 'condos', user.condoId, 'movingRequests');
-      const docRef = await addDoc(movingRef, {
+      const docRef = doc(movingRef);
+      const movingData = {
         ...newMovingRequest,
+        id: docRef.id,
         condoId: user.condoId,
         residentId: user.id,
         residentName: user.name,
         unit: residents.find(r => r.id === user.id)?.unit || 'N/A',
         status: 'PENDING',
         createdAt: new Date().toISOString()
-      });
+      };
+      
+      await setDoc(docRef, movingData);
+      
       setShowMovingModal(false);
       setNewMovingRequest({
         type: 'IN',
@@ -2313,8 +2465,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const cashFlowRef = collection(db, 'condos', user.condoId, 'cashFlow');
-      await addDoc(cashFlowRef, {
+      
+      const isSensitiveExpense = newCashFlowEntry.type === 'EXPENSE' && newCashFlowEntry.amount > 500;
+      const isAdmin = user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN';
+      
+      const status = isSensitiveExpense && !isAdmin ? 'PENDING_AUTHORIZATION' : 'APPROVED';
+
+      const cashRef = doc(cashFlowRef);
+      await setDoc(cashRef, {
         ...newCashFlowEntry,
+        id: cashRef.id,
+        status,
+        requestedBy: user.id,
+        requestedByName: user.name,
         createdAt: new Date().toISOString()
       });
       setShowCashFlowModal(false);
@@ -2325,12 +2488,40 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         description: '',
         date: new Date().toISOString().split('T')[0]
       });
-      createAuditLog('Registrou entrada no fluxo de caixa', 'PAYMENT');
-      alert('Registro de fluxo de caixa criado com sucesso!');
+      
+      const details = `Valor: R$ ${newCashFlowEntry.amount}, Tipo: ${newCashFlowEntry.type}, Status: ${status}`;
+      createAuditLog('Registrou entrada no fluxo de caixa', 'PAYMENT', cashRef.id, details);
+      
+      if (status === 'PENDING_AUTHORIZATION') {
+        alert('Registro criado, porém como a despesa é superior a R$ 500,00, ela aguarda autorização do síndico.');
+      } else {
+        alert('Registro de fluxo de caixa criado com sucesso!');
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/cashFlow`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleUpdateCashFlowStatus = async (id: string, status: CashFlowEntry['status'], reason?: string) => {
+    if (!user.condoId) return;
+    try {
+      const entryRef = doc(db, 'condos', user.condoId, 'cashFlow', id);
+      const updates: any = { 
+        status, 
+        authorizedBy: user.id, 
+        authorizedByName: user.name,
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (reason) updates.rejectionReason = reason;
+
+      await setDoc(entryRef, updates, { merge: true });
+      createAuditLog(`${status === 'APPROVED' ? 'Aprovou' : 'Rejeitou'} despesa`, 'PAYMENT', id, status === 'REJECTED' ? `Motivo: ${reason}` : undefined);
+      alert(`O registro foi ${status === 'APPROVED' ? 'aprovado' : 'rejeitado'} com sucesso.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `condos/${user.condoId}/cashFlow/${id}`);
     }
   };
 
@@ -2343,8 +2534,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     setIsLoading(true);
     try {
       const complaintsRef = collection(db, 'condos', user.condoId, 'complaints');
+      const docRef = doc(complaintsRef);
       const complaintData: any = {
         ...newComplaint,
+        id: docRef.id,
         status: 'PENDING',
         createdAt: new Date().toISOString(),
         condoId: user.condoId
@@ -2355,7 +2548,8 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         complaintData.senderName = user.name;
       }
 
-      await addDoc(complaintsRef, sanitizeData(complaintData));
+      await setDoc(docRef, sanitizeData(complaintData));
+      
       setShowComplaintModal(false);
       setNewComplaint({
         type: 'RESIDENT',
@@ -2363,7 +2557,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
         description: '',
         isAnonymous: false
       });
-      createAuditLog('Registrou nova denúncia', 'COMPLAINT');
+      createAuditLog('Registrou nova denúncia', 'COMPLAINT', docRef.id);
       alert('Sua denúncia foi registrada com sucesso e será analisada pela administração.');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `condos/${user.condoId}/complaints`);
@@ -2460,6 +2654,9 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     try {
       const data = await cameraService.getCameras();
       setCameras(data);
+      if (data.length > 0 && !selectedCamera) {
+        setSelectedCamera(data[0]);
+      }
     } catch (err: any) {
       setCameraError(err.message || "Erro desconhecido ao carregar câmeras.");
     } finally {
@@ -2484,6 +2681,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
     { id: 'minutes', label: 'Atas e Documentos', icon: FileText, category: 'communication' },
     { id: 'packages', label: 'Encomendas', icon: PackageIcon, category: 'management' },
     { id: 'residents', label: 'Moradores', icon: Users, adminOnly: true, category: 'management' },
+    { id: 'staff', label: 'Equipe e Staff', icon: Briefcase, adminOnly: true, category: 'management' },
     { id: 'occurrences', label: 'Ocorrências', icon: AlertTriangle, category: 'communication' },
     { id: 'infractions', label: 'Multas e Infrações', icon: Shield, adminOnly: true, category: 'management' },
     { id: 'reservations', label: 'Reservas', icon: Calendar, category: 'community' },
@@ -2514,7 +2712,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
   ];
 
   const filteredMenuItems = menuItems.filter(item => {
-    if (item.adminOnly && user.role === 'RESIDENT') return false;
+    const isAdmin = user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN' || 
+                   (user.role === 'SUB_SYNDIC' && (condo?.isSyndicAbsent || condo?.actingAdminId === user.id));
+    
+    if (item.adminOnly && !isAdmin) return false;
     if (item.premiumOnly && condo?.planId !== 'PREMIUM') return false;
     return true;
   });
@@ -2688,8 +2889,16 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
             <div className="flex items-center gap-4 pl-6 border-l border-slate-200">
               <div className="text-right hidden lg:block">
                 <p className="text-sm font-black text-slate-800 leading-none mb-1">{user.name}</p>
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
-                  {user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 'Morador'}
+                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 justify-end">
+                  {user.role === 'CONDO_ADMIN' ? 'Síndico Admin' : 
+                   user.role === 'SUB_SYNDIC' ? 'Subsíndico' :
+                   user.role === 'SUPER_ADMIN' ? 'Super Admin' :
+                   user.role === 'JANITOR' ? 'Zelador' :
+                   user.role === 'CONCIERGE' ? 'Porteiro' :
+                   user.role === 'SECURITY' ? 'Segurança' : 'Morador'}
+                  {user.role === 'SUB_SYNDIC' && (condo?.isSyndicAbsent || condo?.actingAdminId === user.id) && (
+                    <span className="bg-orange-500 text-white px-1.5 py-0.5 rounded text-[8px] animate-pulse">EM EXERCÍCIO</span>
+                  )}
                 </p>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/20 ring-2 ring-white">
@@ -2916,6 +3125,76 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Camera Quick View Widget */}
+                  <div className="bg-white rounded-[2.5rem] p-8 sm:p-12 shadow-sm border border-slate-200/60 overflow-hidden relative">
+                    <div className="flex justify-between items-center mb-8">
+                      <div>
+                        <h3 className="text-xl sm:text-2xl font-headline font-extrabold text-slate-800">Câmeras Live</h3>
+                        <p className="text-sm text-slate-400 mt-1">Visão rápida da segurança.</p>
+                      </div>
+                      <button 
+                        onClick={() => setActiveMenu('cameras')}
+                        className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                      >
+                        <ExternalLink className="w-5 h-5 text-slate-600" />
+                      </button>
+                    </div>
+                    
+                    <div className="aspect-video bg-slate-950 rounded-3xl overflow-hidden relative group">
+                      {isCamsLoading ? (
+                        <div className="w-full h-full animate-pulse bg-slate-800 flex items-center justify-center">
+                          <Activity className="w-8 h-8 text-slate-600 animate-bounce" />
+                        </div>
+                      ) : cameras.length > 0 ? (
+                        <div className="w-full h-full">
+                          <ReactPlayer
+                            url={cameras[0]?.url}
+                            playing
+                            muted
+                            width="100%"
+                            height="100%"
+                            style={{ objectFit: 'cover' }}
+                            {...({
+                              config: {
+                                file: {
+                                  attributes: {
+                                    style: { width: '100%', height: '100%', objectFit: 'cover' }
+                                  }
+                                }
+                              }
+                            } as any)}
+                          />
+                          <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full">
+                            <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                            <span className="text-[10px] font-black text-white uppercase tracking-widest">LIVE - {cameras[0].name}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
+                          <Camera className="w-10 h-10 mb-2 opacity-20" />
+                          <p className="text-xs font-bold uppercase tracking-widest">Nenhuma câmera carregada</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 mt-6">
+                      <button 
+                        onClick={() => setActiveMenu('cameras')}
+                        className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl text-center transition-all"
+                      >
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                        <p className="text-sm font-bold text-slate-800">4 Online</p>
+                      </button>
+                      <button 
+                        onClick={() => setActiveMenu('cameras')}
+                        className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl text-center transition-all"
+                      >
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Último Evento</p>
+                        <p className="text-sm font-bold text-slate-800 truncate">Portaria há 2m</p>
+                      </button>
                     </div>
                   </div>
 
@@ -3214,6 +3493,85 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
             </motion.div>
           )}
 
+          {activeMenu === 'staff' && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h3 className="text-2xl font-bold text-primary">Equipe e Staff</h3>
+                  <p className="text-slate-500 text-sm">Gerencie os funcionários e prestadores de serviço do condomínio.</p>
+                </div>
+                {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                  <button 
+                    onClick={() => {
+                      setNewStaff({ name: '', email: '', role: 'JANITOR', condoId: user.condoId || '', cpf: '000.000.000-00', login: '' });
+                      setShowAddStaffModal(true);
+                    }}
+                    className="bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Plus className="w-5 h-5" /> Adicionar Staff
+                  </button>
+                )}
+              </div>
+              
+              <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Funcionário</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Papel / Função</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">E-mail</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {staff.map((u) => (
+                        <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 text-slate-800 font-bold">{u.name}</td>
+                          <td className="px-6 py-4">
+                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                                u.role === 'JANITOR' ? 'bg-emerald-100 text-emerald-600' :
+                                u.role === 'CONCIERGE' ? 'bg-purple-100 text-purple-600' :
+                                u.role === 'SECURITY' ? 'bg-red-100 text-red-600' :
+                                u.role === 'SUB_SYNDIC' ? 'bg-blue-100 text-blue-600' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>
+                                {u.role === 'JANITOR' ? 'Zelador' :
+                                 u.role === 'CONCIERGE' ? 'Porteiro' :
+                                 u.role === 'SECURITY' ? 'Rodante' : 
+                                 u.role === 'SUB_SYNDIC' ? 'Subsíndico' : u.role}
+                              </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 text-sm">{u.email}</td>
+                          <td className="px-6 py-4 text-right">
+                            {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                              <button 
+                                onClick={() => {
+                                  setSelectedStaffForEdit(u);
+                                  setShowEditStaffModal(true);
+                                }}
+                                className="text-primary hover:underline text-sm font-bold"
+                              >
+                                Editar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {staff.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">
+                            Nenhum funcionário cadastrado ainda.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
             {activeMenu === 'assemblies' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 <div className="flex justify-between items-center">
@@ -3470,72 +3828,141 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                 </div>
 
                 {cameraViewTab === 'monitoring' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {cameraError ? (
-                    <div className="col-span-full bg-red-50 border border-red-100 p-8 rounded-3xl text-center">
-                      <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-4" />
-                      <p className="text-red-600 font-bold">{cameraError}</p>
-                      <button 
-                        onClick={loadCameras}
-                        className="mt-4 bg-red-600 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg shadow-red-600/20"
-                      >
-                        Tentar Novamente
-                      </button>
-                    </div>
-                  ) : isCamsLoading ? (
-                    [1, 2, 3, 4].map((i) => (
-                      <div key={i} className="bg-slate-100 rounded-[2.5rem] aspect-video animate-pulse" />
-                    ))
-                  ) : (
-                    cameras.map((cam) => (
-                      <div key={cam.id} className="bg-slate-900 rounded-[2.5rem] overflow-hidden relative group aspect-video">
-                        <img 
-                          src={cam.url} 
-                          alt={cam.name} 
-                          className={`w-full h-full object-cover transition-opacity ${cam.status === 'ONLINE' ? 'opacity-60 group-hover:opacity-80' : 'opacity-20 backdrop-grayscale'}`}
-                          referrerPolicy="no-referrer"
-                        />
-                        
-                        {cam.status === 'ONLINE' && (
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="grid grid-cols-3 gap-2 bg-black/40 backdrop-blur-md p-4 rounded-3xl">
-                              <div />
-                              <button onClick={() => handlePTZ(cam.id, 'PTZ_UP')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowUp className="w-5 h-5" /></button>
-                              <div />
-                              <button onClick={() => handlePTZ(cam.id, 'PTZ_LEFT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowLeft className="w-5 h-5" /></button>
-                              <div className="w-5 h-5" />
-                              <button onClick={() => handlePTZ(cam.id, 'PTZ_RIGHT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowRight className="w-5 h-5" /></button>
-                              <button onClick={() => handlePTZ(cam.id, 'ZOOM_IN')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-bold"><ZoomIn className="w-5 h-5" /></button>
-                              <button onClick={() => handlePTZ(cam.id, 'PTZ_DOWN')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white"><ArrowDown className="w-5 h-5" /></button>
-                              <button onClick={() => handlePTZ(cam.id, 'ZOOM_OUT')} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-bold"><ZoomOut className="w-5 h-5" /></button>
+                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                    {/* Camera Sidebar List */}
+                    <div className="lg:col-span-1 space-y-4 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                      <div className="bg-slate-50 p-4 rounded-3xl mb-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Câmeras Ativas</p>
+                        <p className="text-xl font-black text-slate-800">{cameras.filter(c => c.status === 'ONLINE').length} / {cameras.length}</p>
+                      </div>
+                      
+                      {cameras.map((cam) => (
+                        <button 
+                          key={cam.id}
+                          onClick={() => setSelectedCamera(cam)}
+                          className={`w-full p-4 rounded-3xl border transition-all text-left flex items-center gap-4 ${
+                            selectedCamera?.id === cam.id 
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/10' 
+                            : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                            selectedCamera?.id === cam.id ? 'bg-white/10' : 'bg-slate-100'
+                          }`}>
+                            <Camera className={`w-5 h-5 ${selectedCamera?.id === cam.id ? 'text-white' : 'text-slate-400'}`} />
+                          </div>
+                          <div className="min-w-0 flex-grow">
+                            <p className="font-bold text-sm truncate">{cam.name}</p>
+                            <div className="flex items-center gap-2">
+                              <div className={`w-1.5 h-1.5 rounded-full ${cam.status === 'ONLINE' ? 'bg-red-500' : 'bg-slate-300'}`} />
+                              <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                                selectedCamera?.id === cam.id ? 'text-white/40' : 'text-slate-400'
+                              }`}>{cam.status}</p>
                             </div>
                           </div>
-                        )}
+                        </button>
+                      ))}
+                    </div>
 
-                        {cam.status !== 'ONLINE' && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
-                            <Camera className="w-12 h-12 mb-2" />
-                            <span className="text-xs font-bold uppercase tracking-widest">{cam.status === 'OFFLINE' ? 'Conexão Perdida' : 'Erro na API'}</span>
+                    {/* Main Feed View */}
+                    <div className="lg:col-span-3 space-y-6">
+                      {selectedCamera ? (
+                        <div className="space-y-6">
+                          <div className="bg-slate-950 rounded-[2.5rem] overflow-hidden relative aspect-video shadow-2xl">
+                            {selectedCamera.status === 'ONLINE' ? (
+                              <div className="w-full h-full">
+                                <ReactPlayer
+                                  {...({
+                                    url: selectedCamera.url,
+                                    playing: true,
+                                    controls: false,
+                                    width: "100%",
+                                    height: "100%",
+                                    style: { objectFit: 'cover' }
+                                  } as any)}
+                                />
+                                
+                                {/* PTZ Overlay Controls */}
+                                <div className="absolute right-8 bottom-8 flex flex-col gap-4">
+                                  <div className="grid grid-cols-3 gap-2 bg-black/40 backdrop-blur-md p-4 rounded-3xl border border-white/5">
+                                    <div />
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'PTZ_UP')} className="p-3 bg-white/10 hover:bg-blue-600 rounded-2xl text-white transition-all"><ArrowUp className="w-6 h-6" /></button>
+                                    <div />
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'PTZ_LEFT')} className="p-3 bg-white/10 hover:bg-blue-600 rounded-2xl text-white transition-all"><ArrowLeft className="w-6 h-6" /></button>
+                                    <div className="w-10 h-10 flex items-center justify-center">
+                                      <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                                    </div>
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'PTZ_RIGHT')} className="p-3 bg-white/10 hover:bg-blue-600 rounded-2xl text-white transition-all"><ArrowRight className="w-6 h-6" /></button>
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'ZOOM_IN')} className="p-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-white shadow-lg transition-all"><ZoomIn className="w-6 h-6" /></button>
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'PTZ_DOWN')} className="p-3 bg-white/10 hover:bg-blue-600 rounded-2xl text-white transition-all"><ArrowDown className="w-6 h-6" /></button>
+                                    <button onClick={() => handlePTZ(selectedCamera.id, 'ZOOM_OUT')} className="p-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-white shadow-lg transition-all"><ZoomOut className="w-6 h-6" /></button>
+                                  </div>
+                                </div>
+
+                                <div className="absolute top-8 left-8 flex items-center gap-4">
+                                  <div className="flex items-center gap-2 bg-red-600 text-white px-4 py-1.5 rounded-full shadow-lg">
+                                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">LIVE</span>
+                                  </div>
+                                  <div className="bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/5">
+                                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">{selectedCamera.name}</span>
+                                  </div>
+                                </div>
+                                
+                                <div className="absolute top-8 right-8 flex items-center gap-2">
+                                  <div className="bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/5">
+                                    <span className="text-[8px] font-mono text-white/60 tracking-wider uppercase">{selectedCamera.model}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-white/40">
+                                <Camera className="w-20 h-20 mb-4 opacity-20" />
+                                <h4 className="text-xl font-black uppercase tracking-[0.2em]">Sinal Perdido</h4>
+                                <p className="text-sm font-bold text-white/20 mt-2">Verifique a conexão do NVR ou cabos coaxiais.</p>
+                                <button className="mt-8 px-6 py-2.5 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all border border-white/5">Diagnosticar Conexão</button>
+                              </div>
+                            )}
                           </div>
-                        )}
 
-                        <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">
-                          <div className={`w-2 h-2 rounded-full ${cam.status === 'ONLINE' ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`} />
-                          <span className="text-[10px] font-black text-white uppercase tracking-widest">{cam.status === 'ONLINE' ? 'LIVE' : cam.status}</span>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Último Evento</p>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
+                                  <Activity className="w-4 h-4" />
+                                </div>
+                                <p className="font-bold text-slate-800">{selectedCamera.lastEvent}</p>
+                              </div>
+                            </div>
+                            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Qualidade do Sinal</p>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                                  <ShieldCheck className="w-4 h-4" />
+                                </div>
+                                <p className="font-bold text-slate-800">4K Ultra HD • 30fps</p>
+                              </div>
+                            </div>
+                            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Armazenamento</p>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                  <History className="w-4 h-4" />
+                                </div>
+                                <p className="font-bold text-slate-800">Gravação em Nuvem OK</p>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        
-                        <div className="absolute top-6 right-6 flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full">
-                          <span className="text-[8px] font-bold text-white/60 tracking-wider font-mono">{cam.model}</span>
+                      ) : (
+                        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] aspect-video flex flex-col items-center justify-center text-slate-400">
+                          <Camera className="w-16 h-16 mb-4 opacity-20" />
+                          <p className="font-bold uppercase tracking-widest">Selecione uma câmera para visualizar o feed</p>
                         </div>
-
-                        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
-                          <h4 className="text-white font-bold">{cam.name}</h4>
-                          <p className={`text-xs ${cam.status === 'ONLINE' ? 'text-white/60' : 'text-red-400'}`}>{cam.lastEvent}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      )}
+                    </div>
+                  </div>
                 ) : cameraViewTab === 'settings' ? (
                   <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -4655,18 +5082,19 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                         </div>
                       )}
 
-                      {user.role !== 'RESIDENT' && (
-                        <button 
-                          onClick={async () => {
-                            if (window.confirm("Deseja remover esta vaga?")) {
-                              await deleteDoc(doc(db, 'condos', user.condoId!, 'parkingSlots', slot.id));
-                            }
-                          }}
-                          className="absolute top-2 right-2 p-1 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
+                          {user.role !== 'RESIDENT' && (
+                            <button 
+                              onClick={async () => {
+                                if (window.confirm("Deseja remover esta vaga?")) {
+                                  await deleteDoc(doc(db, 'condos', user.condoId!, 'parkingSlots', slot.id));
+                                  createAuditLog('Removeu vaga de garagem', 'PARKING', slot.id, `Vaga: ${slot.number}`);
+                                }
+                              }}
+                              className="absolute top-2 right-2 p-1 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                     </div>
                   ))}
                   {parkingSlots.length === 0 && (
@@ -4719,6 +5147,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                         onClick={async () => {
                           if (window.confirm("Deseja desvincular esta tag?")) {
                             await deleteDoc(doc(db, 'condos', user.condoId!, 'accessTags', tag.id));
+                            createAuditLog('Desvinculou tag de acesso', 'TAG', tag.id, `Morador: ${tag.residentName}, Tag: ${tag.tagId}`);
                           }
                         }}
                         className="absolute top-4 right-4 p-2 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-all"
@@ -5028,10 +5457,10 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Saídas Totais</p>
                         <p className="text-3xl font-black text-red-600">
-                          R$ {cashFlowEntries.filter(e => e.type === 'EXPENSE').reduce((acc, e) => acc + e.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {cashFlowEntries.filter(e => e.type === 'EXPENSE' && e.status === 'APPROVED').reduce((acc, e) => acc + e.amount, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
                         <p className="text-[10px] text-red-400 font-bold mt-2 uppercase">
-                          Despesas Fixas e Variáveis
+                          Apenas despesas aprovadas
                         </p>
                       </div>
                       <div className="bg-slate-900 p-8 rounded-3xl shadow-xl shadow-slate-900/10 text-white">
@@ -5040,11 +5469,11 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                           R$ {(
                             (invoices.filter(i => i.status === 'PAID').reduce((acc, i) => acc + i.amount, 0) +
                              cashFlowEntries.filter(e => e.type === 'INCOME').reduce((acc, e) => acc + e.amount, 0)) -
-                            cashFlowEntries.filter(e => e.type === 'EXPENSE').reduce((acc, e) => acc + e.amount, 0)
+                            cashFlowEntries.filter(e => e.type === 'EXPENSE' && e.status === 'APPROVED').reduce((acc, e) => acc + e.amount, 0)
                           ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
                         <p className="text-[10px] text-slate-400 font-bold mt-2 uppercase">
-                          Disponibilidade Imediata
+                          Saldo Real (Considerando Aprovações)
                         </p>
                       </div>
                     </div>
@@ -5066,7 +5495,7 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                       </div>
                       <div className="divide-y divide-slate-100">
                         {cashFlowEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
-                          <div key={entry.id} className="px-8 py-6 flex justify-between items-center hover:bg-slate-50 transition-all">
+                          <div key={entry.id} className={`px-8 py-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:bg-slate-50 transition-all ${entry.status === 'REJECTED' ? 'opacity-50 grayscale' : ''}`}>
                             <div className="flex items-center gap-4">
                               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${entry.type === 'INCOME' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
                                 {entry.type === 'INCOME' ? <ArrowUp className="w-6 h-6" /> : <ArrowDown className="w-6 h-6" />}
@@ -5079,14 +5508,53 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                                   }`}>
                                     {entry.category === 'FIXED' ? 'Fixa' : 'Variável'}
                                   </span>
+                                  {entry.status && (
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${
+                                      entry.status === 'PENDING_AUTHORIZATION' ? 'bg-orange-100 text-orange-600' :
+                                      entry.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
+                                      'bg-red-100 text-red-600'
+                                    }`}>
+                                      {entry.status === 'PENDING_AUTHORIZATION' ? 'Aguardando Aprovação' :
+                                       entry.status === 'APPROVED' ? 'Aprovado' : 'Rejeitado'}
+                                    </span>
+                                  )}
                                 </div>
-                                <p className="text-xs text-slate-400">{format(parseISO(entry.date), "dd 'de' MMMM", { locale: ptBR })}</p>
+                                <div className="flex flex-col">
+                                  <p className="text-xs text-slate-400">{format(parseISO(entry.date), "dd 'de' MMMM", { locale: ptBR })}</p>
+                                  {(entry.status === 'PENDING_AUTHORIZATION' || entry.requestedByName) && (
+                                    <p className="text-[10px] text-slate-400 font-medium">Solicitado por: <span className="font-bold">{entry.requestedByName || 'Staff'}</span></p>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className={`font-black ${entry.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
+                            <div className="flex flex-col md:items-end gap-2 w-full md:w-auto">
+                              <p className={`font-black text-xl ${entry.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
                                 {entry.type === 'INCOME' ? '+' : '-'} R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                               </p>
+                              
+                              {entry.status === 'PENDING_AUTHORIZATION' && (user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && (
+                                <div className="flex gap-2">
+                                  <button 
+                                    onClick={() => handleUpdateCashFlowStatus(entry.id, 'APPROVED')}
+                                    className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-black shadow-sm flex items-center gap-1"
+                                  >
+                                    <Check className="w-3 h-3" /> Aprovar
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      const reason = prompt('Qual o motivo da rejeição?');
+                                      if (reason) handleUpdateCashFlowStatus(entry.id, 'REJECTED', reason);
+                                    }}
+                                    className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1"
+                                  >
+                                    <X className="w-3 h-3" /> Rejeitar
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {entry.status === 'REJECTED' && entry.rejectionReason && (
+                                <p className="text-[10px] text-red-500 italic max-w-xs text-right">Motivo: {entry.rejectionReason}</p>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -5557,30 +6025,93 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                   ))}
                 </div>
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="p-8 border-b border-gray-100">
-                    <h3 className="text-lg font-bold text-primary">Solicitações Pendentes</h3>
+                  <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-primary">Suas Reservas e Solicitações</h3>
                   </div>
                   <div className="divide-y divide-gray-100">
-                    {[
-                      { resident: 'Ana Silva', area: 'Salão de Festas', date: '20/04/2024', status: 'PENDING' },
-                      { resident: 'Bruno Santos', area: 'Churrasqueira B', date: '22/04/2024', status: 'PENDING' },
-                    ].map((res, i) => (
-                      <div key={i} className="px-8 py-6 flex justify-between items-center hover:bg-gray-50 transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-primary font-bold">
-                            {res.resident.split(' ').map(n => n[0]).join('')}
-                          </div>
-                          <div>
-                            <p className="font-bold text-primary">{res.resident}</p>
-                            <p className="text-sm text-gray-400">{res.area} • {res.date}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button className="px-4 py-2 bg-green-100 text-green-600 rounded-xl text-xs font-bold hover:bg-green-600 hover:text-white transition-all">Aprovar</button>
-                          <button className="px-4 py-2 bg-red-100 text-red-600 rounded-xl text-xs font-bold hover:bg-red-600 hover:text-white transition-all">Recusar</button>
-                        </div>
+                    {reservations.length === 0 ? (
+                      <div className="p-12 text-center text-gray-400">
+                        <p className="font-bold">Nenhuma reserva encontrada.</p>
+                        <p className="text-sm">Clique em "Nova Reserva" para solicitar.</p>
                       </div>
-                    ))}
+                    ) : (
+                      reservations.map((res) => (
+                        <div key={res.id} className="px-8 py-6 flex justify-between items-center hover:bg-gray-50 transition-all">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold ${
+                              res.status === 'APPROVED' ? 'bg-green-100 text-green-600' :
+                              res.status === 'DENIED' ? 'bg-red-100 text-red-600' :
+                              res.status === 'CANCELLED' ? 'bg-gray-100 text-gray-400' :
+                              'bg-orange-100 text-orange-600'
+                            }`}>
+                              <Calendar className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-primary">{res.areaName}</p>
+                              <p className="text-sm text-gray-400">
+                                {format(parseISO(res.date), 'dd/MM/yyyy')} • {res.startTime} - {res.endTime}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                              res.status === 'APPROVED' ? 'bg-green-100 text-green-600' :
+                              res.status === 'DENIED' ? 'bg-red-100 text-red-600' :
+                              res.status === 'CANCELLED' ? 'bg-gray-100 text-gray-400' :
+                              'bg-orange-100 text-orange-600'
+                            }`}>
+                              {res.status === 'APPROVED' ? 'Aprovada' : 
+                               res.status === 'DENIED' ? 'Recusada' : 
+                               res.status === 'CANCELLED' ? 'Cancelada' : 
+                               'Pendente'}
+                            </span>
+                            {res.status === 'PENDING' && user.role === 'RESIDENT' && (
+                              <button 
+                                onClick={async () => {
+                                  if (window.confirm("Deseja cancelar esta solicitação?")) {
+                                    const resRef = doc(db, 'condos', user.condoId!, 'reservations', res.id);
+                                    await updateDoc(resRef, { status: 'CANCELLED' });
+                                    createAuditLog('Cancelou solicitação de reserva', 'OTHER', res.id, `Área: ${res.areaName}`);
+                                  }
+                                }}
+                                className="text-red-500 hover:text-red-700 transition-colors"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            )}
+                            {(user.role === 'CONDO_ADMIN' || user.role === 'SUPER_ADMIN') && res.status === 'PENDING' && (
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={async () => {
+                                    const resRef = doc(db, 'condos', user.condoId!, 'reservations', res.id);
+                                    await updateDoc(resRef, { status: 'APPROVED' });
+                                    createAuditLog('Aprovou reserva', 'OTHER', res.id, `Área: ${res.areaName} - Morador: ${res.residentName}`);
+                                    alert("Reserva aprovada!");
+                                  }}
+                                  className="px-4 py-2 bg-green-100 text-green-600 rounded-xl text-xs font-bold hover:bg-green-600 hover:text-white transition-all"
+                                >
+                                  Aprovar
+                                </button>
+                                <button 
+                                  onClick={async () => {
+                                    const reason = window.prompt("Motivo da recusa:");
+                                    if (reason !== null) {
+                                      const resRef = doc(db, 'condos', user.condoId!, 'reservations', res.id);
+                                      await updateDoc(resRef, { status: 'DENIED', denialReason: reason });
+                                      createAuditLog('Recusou reserva', 'OTHER', res.id, `Área: ${res.areaName} - Motivo: ${reason}`);
+                                      alert("Reserva recusada.");
+                                    }
+                                  }}
+                                  className="px-4 py-2 bg-red-100 text-red-600 rounded-xl text-xs font-bold hover:bg-red-600 hover:text-white transition-all"
+                                >
+                                  Recusar
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -5855,13 +6386,236 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
             )}
 
             {activeMenu === 'settings' && (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="bg-gray-100 p-8 rounded-full mb-6">
-                  <Settings className="w-12 h-12 text-gray-400" />
-                </div>
-                <h3 className="text-xl font-bold text-primary mb-2">Configurações do Sistema</h3>
-                <p className="text-gray-500 max-w-xs">Gerencie as preferências do condomínio, notificações e integrações.</p>
-              </div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8 pb-12 w-full">
+                <div className="bg-white rounded-[2.5rem] p-8 md:p-12 shadow-sm border border-slate-100">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
+                    <div>
+                      <h3 className="text-3xl font-black text-slate-800 tracking-tight">Identidade do Condomínio</h3>
+                      <p className="text-slate-500 font-medium">Personalize como os moradores veem e acessam o portal.</p>
+                    </div>
+                    <button 
+                      onClick={async () => {
+                        if (!user.condoId || !condo) return;
+                        setIsLoading(true);
+                        try {
+                          await setDoc(doc(db, 'condos', user.condoId), condo, { merge: true });
+                          alert("Configurações atualizadas com sucesso!");
+                          createAuditLog('Atualizou configurações da identidade do condomínio', 'CONDO_SETTINGS', user.condoId);
+                        } catch (err) {
+                          console.error(err);
+                          alert("Erro ao salvar configurações.");
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }}
+                      className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 flex items-center gap-2 group"
+                    >
+                      {isLoading ? <Activity className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5 group-hover:scale-110 transition-transform" />}
+                      Salvar Alterações
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    <div className="space-y-8">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Informações Básicas</label>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700">Nome Oficial</label>
+                            <input 
+                              type="text" 
+                              value={condo?.name || ''}
+                              onChange={(e) => condo && setCondo({...condo, name: e.target.value})}
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700">Cidade</label>
+                            <input 
+                              type="text" 
+                              value={condo?.city || ''}
+                              onChange={(e) => condo && setCondo({...condo, city: e.target.value})}
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-8 border-t border-slate-50">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gestão e Ausência</label>
+                        <div className="space-y-6">
+                          <div className="flex items-center gap-4">
+                            <button 
+                              onClick={() => condo && setCondo({...condo, isSyndicAbsent: !condo.isSyndicAbsent})}
+                              className={`w-14 h-8 rounded-full transition-all relative ${condo?.isSyndicAbsent ? 'bg-orange-500' : 'bg-slate-300'}`}
+                            >
+                              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-sm ${condo?.isSyndicAbsent ? 'left-7' : 'left-1'}`} />
+                            </button>
+                            <div>
+                              <p className="font-bold text-slate-800 text-sm">Síndico Ausente</p>
+                              <p className="text-xs text-slate-500">Transfere automaticamente poderes administrativos para o Subsíndico indicado.</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700">Subsíndico em Exercício</label>
+                            <select 
+                              value={condo?.actingAdminId || ''}
+                              onChange={(e) => condo && setCondo({...condo, actingAdminId: e.target.value})}
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                            >
+                              <option value="">Selecione um subsíndico...</option>
+                              {staff.filter(u => u.role === 'SUB_SYNDIC').map(u => (
+                                <option key={u.id} value={u.id}>{u.name}</option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-slate-400 italic">O usuário selecionado terá permissão total de administrador enquanto o modo ausente estiver ativo.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-8">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Landing Page & Branding</label>
+                        <div className="space-y-6">
+                          <div className="flex items-center gap-4">
+                            <button 
+                              onClick={() => condo && setCondo({...condo, landingPageEnabled: !condo.landingPageEnabled})}
+                              className={`w-14 h-8 rounded-full transition-all relative ${condo?.landingPageEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            >
+                              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-sm ${condo?.landingPageEnabled ? 'left-7' : 'left-1'}`} />
+                            </button>
+                            <div>
+                              <p className="font-bold text-slate-800 text-sm">Página Pública Ativa</p>
+                              <p className="text-xs text-slate-500">Permite que o condomínio tenha seu próprio site de apresentação.</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-800">URL do Logo (Ícone)</label>
+                              <input 
+                                type="text" 
+                                value={condo?.logo || ''}
+                                onChange={(e) => condo && setCondo({...condo, logo: e.target.value})}
+                                placeholder="https://..."
+                                className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all text-xs" 
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-800">URL da Imagem Principal (Hero)</label>
+                              <input 
+                                type="text" 
+                                value={condo?.heroImage || ''}
+                                onChange={(e) => condo && setCondo({...condo, heroImage: e.target.value})}
+                                placeholder="https://..."
+                                className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all text-xs" 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-800">Mensagem de Boas-Vindas</label>
+                            <input 
+                              type="text" 
+                              value={condo?.welcomeMessage || ''}
+                              onChange={(e) => condo && setCondo({...condo, welcomeMessage: e.target.value})}
+                              placeholder="Ex: Bem-vindo ao paraíso"
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-800">Descrição Curta</label>
+                            <textarea 
+                              value={condo?.description || ''}
+                              onChange={(e) => condo && setCondo({...condo, description: e.target.value})}
+                              placeholder="Descreva o condomínio e seus diferenciais..."
+                              className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[100px]" 
+                            />
+                          </div>
+
+                          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-slate-800">Cor de Identidade</p>
+                              <p className="text-xs text-slate-500">Define a cor dos botões e destaques no portal do morador.</p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <input 
+                                type="color" 
+                                value={condo?.primaryColor || '#2563eb'}
+                                onChange={(e) => condo && setCondo({...condo, primaryColor: e.target.value})}
+                                className="w-12 h-12 rounded-xl cursor-pointer border-none shadow-sm" 
+                              />
+                              <span className="font-mono text-xs font-bold text-slate-400">{condo?.primaryColor || '#2563eb'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    </div>
+
+                    <div className="space-y-8">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Domínios e Acesso</label>
+                        <div className="space-y-6">
+                          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 relative group">
+                            <div className="flex justify-between items-start mb-2">
+                              <label className="text-sm font-bold text-blue-900">Subdomínio (SaaS)</label>
+                              <Globe className="w-4 h-4 text-blue-400 group-hover:rotate-12 transition-transform" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="text" 
+                                value={condo?.slug || ''}
+                                onChange={(e) => condo && setCondo({...condo, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')})}
+                                className="bg-white/80 border-none rounded-xl px-4 py-3 text-blue-900 font-black text-sm focus:ring-2 focus:ring-blue-200 transition-all w-40" 
+                              />
+                              <span className="text-blue-400 font-bold text-sm tracking-tight">.condopro.com.br</span>
+                            </div>
+                            <p className="text-[10px] text-blue-600 font-bold mt-2 uppercase tracking-wider">Acesso imediato via subdomínio compartilhado.</p>
+                          </div>
+
+                          <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 relative group">
+                            <div className="flex justify-between items-start mb-2">
+                              <label className="text-sm font-bold text-emerald-900">Domínio Próprio</label>
+                              <ShieldCheck className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                            </div>
+                            <input 
+                              type="text" 
+                              placeholder="ex: www.meucondominio.com"
+                              value={condo?.customDomain || ''}
+                              onChange={(e) => condo && setCondo({...condo, customDomain: e.target.value.toLowerCase().trim()})}
+                              className="w-full bg-white/80 border-none rounded-xl px-4 py-3 text-emerald-900 font-black text-sm placeholder:text-emerald-200 focus:ring-2 focus:ring-emerald-200 transition-all" 
+                            />
+                            <p className="text-[10px] text-emerald-600 font-bold mt-2 uppercase tracking-wider">Aponte o CNAME para app.condopro.com.br</p>
+                          </div>
+
+                          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                            <div className="flex items-start gap-4">
+                              <div className="p-3 bg-white rounded-2xl shadow-sm">
+                                <ExternalLink className="w-5 h-5 text-slate-400" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-800 text-sm">Visualizar Portal</p>
+                                <p className="text-xs text-slate-500 mb-4">Veja como os moradores enxergam a página de entrada.</p>
+                                <a 
+                                  href={condo?.customDomain ? `https://${condo.customDomain}` : `/?condo=${condo?.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-black uppercase text-blue-600 hover:underline tracking-widest"
+                                >
+                                  Abrir Link Externo
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
@@ -6492,6 +7246,183 @@ const Dashboard = ({ user, onLogout, appSettings, createAuditLog, plans, onSendE
                 >
                   Confirmar Agendamento
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Parking Modal */}
+      <AnimatePresence>
+        {showAddStaffModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddStaffModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center text-slate-800">
+                <h3 className="text-xl font-bold">Novo Membro da Equipe</h3>
+                <button onClick={() => setShowAddStaffModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    value={newStaff.name}
+                    onChange={(e) => setNewStaff({...newStaff, name: e.target.value})}
+                    placeholder="Ex: João da Silva" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">E-mail</label>
+                  <input 
+                    type="email" 
+                    value={newStaff.email}
+                    onChange={(e) => setNewStaff({...newStaff, email: e.target.value})}
+                    placeholder="joao@condominio.com" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Função / Cargo</label>
+                  <select 
+                    value={newStaff.role}
+                    onChange={(e) => setNewStaff({...newStaff, role: e.target.value as UserRole})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="JANITOR">Zelador</option>
+                    <option value="CONCIERGE">Porteiro</option>
+                    <option value="SECURITY">Rodante (Segurança)</option>
+                    <option value="SUB_SYNDIC">Subsíndico</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
+                    <input 
+                      type="text" 
+                      value={newStaff.cpf}
+                      onChange={(e) => setNewStaff({...newStaff, cpf: formatCPF(e.target.value)})}
+                      placeholder="000.000.000-00" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <input 
+                      type="text" 
+                      value={newStaff.login}
+                      onChange={(e) => setNewStaff({...newStaff, login: e.target.value})}
+                      placeholder="joao.staff" 
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={handleCreateStaff}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50"
+                >
+                  {isLoading ? 'Salvando...' : 'Cadastrar Funcionário'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEditStaffModal && selectedStaffForEdit && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowEditStaffModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center text-slate-800">
+                <h3 className="text-xl font-bold">Editar Funcionário</h3>
+                <button onClick={() => setShowEditStaffModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    value={selectedStaffForEdit.name}
+                    onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, name: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">E-mail</label>
+                  <input 
+                    type="email" 
+                    value={selectedStaffForEdit.email}
+                    onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, email: e.target.value})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Função / Cargo</label>
+                  <select 
+                    value={selectedStaffForEdit.role}
+                    onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, role: e.target.value as UserRole})}
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="JANITOR">Zelador</option>
+                    <option value="CONCIERGE">Porteiro</option>
+                    <option value="SECURITY">Rodante (Segurança)</option>
+                    <option value="SUB_SYNDIC">Subsíndico</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">CPF</label>
+                    <input 
+                      type="text" 
+                      value={selectedStaffForEdit.cpf}
+                      onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, cpf: formatCPF(e.target.value)})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Login</label>
+                    <input 
+                      type="text" 
+                      value={selectedStaffForEdit.login}
+                      onChange={(e) => setSelectedStaffForEdit({...selectedStaffForEdit, login: e.target.value})}
+                      className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    onClick={() => handleDeleteStaff(selectedStaffForEdit.id, selectedStaffForEdit.name)}
+                    className="flex-1 py-4 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all"
+                  >
+                    Remover
+                  </button>
+                  <button 
+                    onClick={handleUpdateStaff}
+                    disabled={isLoading}
+                    className="flex-[2] py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50"
+                  >
+                    {isLoading ? 'Salvando...' : 'Atualizar Dados'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -7823,7 +8754,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
   onSendEmail: (to: string, subject: string, body: string) => Promise<boolean>,
   onSendWhatsApp: (to: string, message: string) => Promise<boolean>
 }) => {
-  const [activeMenu, setActiveMenu] = useState('overview');
+  const [activeMenu, setActiveMenu] = useState('condos');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [condos, setCondos] = useState<Condo[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
@@ -7835,6 +8766,28 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       maxUnits: number;
     }
   }>({});
+  const [showAddCondoModal, setShowAddCondoModal] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] = useState<AppUser | null>(null);
+  const [managedCondoId, setManagedCondoId] = useState<string | null>(null);
+  const [condoForPackages, setCondoForPackages] = useState<Condo | null>(null);
+  const [condoPackages, setCondoPackages] = useState<Package[]>([]);
+  const [showAddPackageModal, setShowAddPackageModal] = useState(false);
+  const [newPackage, setNewPackage] = useState({ 
+    residentId: '', 
+    description: '', 
+    carrier: '' 
+    });
+  const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'], customDomain: '', primaryColor: '#00323d' });
+  const [isSavingPlans, setIsSavingPlans] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '000.000.000-00', login: '' });
+  const [profileData, setProfileData] = useState({
+    name: user.name || '',
+    cpf: user.cpf || '000.000.000-00',
+    login: user.login || '',
+    avatarUrl: user.avatarUrl || ''
+  });
 
   useEffect(() => {
     if (appSettings) {
@@ -7873,28 +8826,6 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
       setIsSavingPlans(false);
     }
   };
-  const [showAddCondoModal, setShowAddCondoModal] = useState(false);
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [showEditUserModal, setShowEditUserModal] = useState(false);
-  const [selectedUserForEdit, setSelectedUserForEdit] = useState<AppUser | null>(null);
-  const [managedCondoId, setManagedCondoId] = useState<string | null>(null);
-  const [condoForPackages, setCondoForPackages] = useState<Condo | null>(null);
-  const [condoPackages, setCondoPackages] = useState<Package[]>([]);
-  const [showAddPackageModal, setShowAddPackageModal] = useState(false);
-  const [newPackage, setNewPackage] = useState({ 
-    residentId: '', 
-    description: '', 
-    carrier: '' 
-  });
-  const [newCondo, setNewCondo] = useState({ name: '', slug: '', city: '', units: 0, planId: 'BASIC' as Condo['planId'], subscriptionStatus: 'ACTIVE' as Condo['subscriptionStatus'] });
-  const [isSavingPlans, setIsSavingPlans] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'CONDO_ADMIN' as AppUser['role'], condoId: '', cpf: '000.000.000-00', login: '' });
-  const [profileData, setProfileData] = useState({
-    name: user.name || '',
-    cpf: user.cpf || '000.000.000-00',
-    login: user.login || '',
-    avatarUrl: user.avatarUrl || ''
-  });
 
   const handleUpdateProfile = async () => {
     try {
@@ -7928,7 +8859,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
     const auditLogsQuery = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(50));
     const unsubAuditLogs = onSnapshot(auditLogsQuery, (snap) => {
       setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'condos/global/auditLogs'));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'saas_audit_logs'));
 
     return () => {
       unsubCondos();
@@ -8056,7 +8987,9 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
         trialEndsAt: newCondo.subscriptionStatus === 'TRIAL' ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : undefined,
         adminId: user.id, // Atribuir usuário criador como admin
         createdAt: new Date().toISOString(),
-        address: ''
+        address: '',
+        customDomain: newCondo.customDomain || undefined,
+        primaryColor: newCondo.primaryColor
       };
       await setDoc(condoRef, sanitizeData(condoData));
 
@@ -8117,7 +9050,7 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
 
       await createAuditLog('Cadastrou novo condomínio', 'CONDO', condoRef.id, `Condomínio: ${newCondo.name}, Slug: ${condoData.slug}`, 'global');
       setShowAddCondoModal(false);
-      setNewCondo({ name: '', slug: '', city: '', units: 0, planId: 'BASIC', subscriptionStatus: 'ACTIVE' });
+      setNewCondo({ name: '', slug: '', city: '', units: 0, planId: 'BASIC', subscriptionStatus: 'ACTIVE', customDomain: '', primaryColor: '#2563eb' });
       
       // Opcional: Entrar no modo gerenciamento automaticamente
       setManagedCondoId(condoRef.id);
@@ -8626,10 +9559,16 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                             <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
                               u.role === 'SUPER_ADMIN' ? 'bg-orange-100 text-orange-600' : 
                               u.role === 'CONDO_ADMIN' ? 'bg-blue-100 text-blue-600' : 
+                              u.role === 'JANITOR' ? 'bg-emerald-100 text-emerald-600' :
+                              u.role === 'CONCIERGE' ? 'bg-purple-100 text-purple-600' :
+                              u.role === 'SECURITY' ? 'bg-red-100 text-red-600' :
                               'bg-gray-100 text-gray-600'
                             }`}>
                               {u.role === 'SUPER_ADMIN' ? 'Super Admin' : 
                                u.role === 'CONDO_ADMIN' ? 'Síndico' : 
+                               u.role === 'JANITOR' ? 'Zelador' :
+                               u.role === 'CONCIERGE' ? 'Porteiro' :
+                               u.role === 'SECURITY' ? 'Rodante' :
                                'Morador'}
                             </span>
                           </td>
@@ -8997,6 +9936,29 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                     className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Domínio Customizado (Opcional)</label>
+                  <input 
+                    type="text" 
+                    value={newCondo.customDomain}
+                    onChange={(e) => setNewCondo({...newCondo, customDomain: e.target.value})}
+                    placeholder="Ex: meucondominio.com.br" 
+                    className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
+                  />
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">O domínio deve estar apontado via CNAME para a nossa plataforma.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cor de Identidade (Dashboard Morador)</label>
+                  <div className="flex items-center gap-4">
+                    <input 
+                      type="color" 
+                      value={newCondo.primaryColor}
+                      onChange={(e) => setNewCondo({...newCondo, primaryColor: e.target.value})}
+                      className="w-12 h-12 rounded-lg cursor-pointer border-none" 
+                    />
+                    <span className="text-sm font-mono text-gray-500">{newCondo.primaryColor}</span>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unidades</label>
@@ -9288,6 +10250,9 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                   >
                     <option value="RESIDENT">Morador</option>
                     <option value="CONDO_ADMIN">Síndico Admin</option>
+                    <option value="JANITOR">Zelador</option>
+                    <option value="CONCIERGE">Porteiro</option>
+                    <option value="SECURITY">Rodante (Segurança)</option>
                     <option value="SUPER_ADMIN">Super Admin</option>
                   </select>
                 </div>
@@ -9388,6 +10353,9 @@ const SuperAdminDashboard = ({ user, onLogout, appSettings, onUpdateSettings, cr
                   >
                     <option value="RESIDENT">Morador</option>
                     <option value="CONDO_ADMIN">Síndico Admin</option>
+                    <option value="JANITOR">Zelador</option>
+                    <option value="CONCIERGE">Porteiro</option>
+                    <option value="SECURITY">Rodante (Segurança)</option>
                     <option value="SUPER_ADMIN">Super Admin</option>
                   </select>
                 </div>
@@ -9555,6 +10523,118 @@ const CONDO_RULES = `
 9. PORTARIA: O uso de Tag ou Face ID é obrigatório para moradores para garantir a segurança coletiva.
 `;
 
+const CondoPortal = ({ condo, onShowLoginModal }: { condo: Condo, onShowLoginModal: () => void }) => {
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Condo Specific Header */}
+      <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          {condo.logo ? (
+            <img src={condo.logo} alt="Logo" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
+          ) : (
+            <div className="bg-primary w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg">
+              <Building2 className="w-5 h-5" />
+            </div>
+          )}
+          <div className="flex flex-col">
+            <span className="font-black text-lg text-slate-800 tracking-tight leading-none">{condo.name}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Portal do Morador</span>
+          </div>
+        </div>
+        <button 
+          onClick={onShowLoginModal}
+          className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all"
+        >
+          <Smartphone className="w-4 h-4" /> Acessar Portal
+        </button>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="relative pt-32 pb-20 px-6 overflow-hidden min-h-[60vh] flex items-center">
+        {condo.heroImage && (
+          <div className="absolute inset-0 z-0">
+            <img src={condo.heroImage} alt="Hero" className="w-full h-full object-cover opacity-10 blur-sm" />
+            <div className="absolute inset-0 bg-gradient-to-b from-white via-transparent to-white" />
+          </div>
+        )}
+        <div className="relative z-10 max-w-4xl mx-auto text-center space-y-8">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-block px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-black uppercase tracking-widest"
+          >
+            {condo.welcomeMessage || 'Bem-vindo ao seu condomínio digital'}
+          </motion.div>
+          <motion.h1 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight"
+          >
+            Gestão e Convivência <br /> no <span className="text-primary">{condo.name}</span>
+          </motion.h1>
+          <motion.p 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-lg text-slate-500 max-w-2xl mx-auto font-medium"
+          >
+            {condo.description || 'Reserve áreas comuns, registre ocorrências, receba encomendas e participe das assembleias de forma simples e segura.'}
+          </motion.p>
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
+          >
+            <button 
+              onClick={onShowLoginModal}
+              className="w-full sm:w-auto px-10 py-5 bg-primary text-white rounded-[2rem] font-black shadow-2xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all text-lg flex items-center justify-center gap-3"
+            >
+              Entrar no Portal <ArrowRight className="w-5 h-5" />
+            </button>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Stats/Infos */}
+      <section className="py-20 bg-slate-50">
+        <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            { icon: Users, label: "Unidades", value: condo.units, color: "blue" },
+            { icon: MapPin, label: "Localização", value: condo.city, color: "emerald" },
+            { icon: Shield, label: "Status", value: "Monitorado", color: "amber" }
+          ].map((stat, i) => (
+            <motion.div 
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center gap-6"
+            >
+              <div className={`w-14 h-14 rounded-2xl bg-${stat.color}-50 text-${stat.color}-600 flex items-center justify-center`}>
+                <stat.icon className="w-7 h-7" />
+              </div>
+              <div>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+                <p className="text-xl font-black text-slate-800 tracking-tight">{stat.value}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-12 border-t border-slate-100 text-center">
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <Building2 className="w-5 h-5 text-slate-300" />
+          <span className="text-sm font-bold text-slate-400">{condo.name} - {condo.city}</span>
+        </div>
+        <p className="text-xs text-slate-400">Desenvolvido por CondoPro Gestão Inteligente</p>
+      </footer>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [detectedCondo, setDetectedCondo] = useState<Condo | null>(null);
@@ -9605,43 +10685,81 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'settings/global');
     });
 
-    // Subdomain / Slug Detection
+    // Subdomain / Slug / Custom Domain Detection
     const hostname = window.location.hostname;
+    const path = window.location.pathname;
     const parts = hostname.split('.');
-    let slug = '';
     
     // Check for ?condo= query param as fallback for dev environment
     const urlParams = new URLSearchParams(window.location.search);
     const condoParam = urlParams.get('condo');
 
-    if (condoParam) {
-      slug = condoParam;
-    } else if (parts.length > 2 && parts[0] !== 'www') {
-      slug = parts[0];
-    }
+    const handleDetectedCondo = (condoData: Condo) => {
+      setDetectedCondo(condoData);
+      if (condoData.primaryColor) {
+        setAppSettings(prev => ({ ...prev, primaryColor: condoData.primaryColor }));
+      }
+    };
 
-    if (slug) {
-      const condosRef = collection(db, 'condos');
-      const q = query(condosRef, where('slug', '==', slug), limit(1));
+    if (condoParam) {
+      const q = query(collection(db, 'condos'), where('slug', '==', condoParam), limit(1));
       getDocs(q).then(snap => {
         if (!snap.empty) {
-          setDetectedCondo({ id: snap.docs[0].id, ...snap.docs[0].data() } as Condo);
+          handleDetectedCondo({ id: snap.docs[0].id, ...snap.docs[0].data() } as Condo);
         }
-      }).catch(err => console.error("Error detecting condo:", err));
+      });
+    } else {
+      // Check for /p/:slug
+      const pathParts = path.split('/');
+      if (pathParts[1] === 'p' && pathParts[2]) {
+        const qSlug = query(collection(db, 'condos'), where('slug', '==', pathParts[2]), limit(1));
+        getDocs(qSlug).then(snapSub => {
+          if (!snapSub.empty) {
+            handleDetectedCondo({ id: snapSub.docs[0].id, ...snapSub.docs[0].data() } as Condo);
+          }
+        });
+      } else {
+        // Try by custom domain first
+        const qCustom = query(collection(db, 'condos'), where('customDomain', '==', hostname), limit(1));
+        getDocs(qCustom).then(snap => {
+          if (!snap.empty) {
+            handleDetectedCondo({ id: snap.docs[0].id, ...snap.docs[0].data() } as Condo);
+          } else if (parts.length > 2 && parts[0] !== 'www') {
+            // If no custom domain, try by subdomain slug
+            const slug = parts[0];
+            const qSlug = query(collection(db, 'condos'), where('slug', '==', slug), limit(1));
+            getDocs(qSlug).then(snapSlug => {
+              if (!snapSlug.empty) {
+                handleDetectedCondo({ id: snapSlug.docs[0].id, ...snapSlug.docs[0].data() } as Condo);
+              }
+            });
+          }
+        });
+      }
     }
 
     return () => unsubSettings();
   }, []);
 
   const createAuditLog = async (action: string, resourceType: AuditLog['resourceType'], resourceId?: string, details?: string, condoId?: string) => {
-    const targetCondoId = condoId || user?.condoId || 'global';
     if (!user) return;
     try {
-      const auditLogsRef = collection(db, 'condos', targetCondoId, 'auditLogs');
+      // Determine if this is a global (SaaS) log or a condo-specific log
+      let auditLogsRef;
+      const targetCondoId = condoId || user?.condoId;
+      
+      if (!targetCondoId || targetCondoId === 'global' || user.role === 'SUPER_ADMIN') {
+        // SaaS Global logs
+        auditLogsRef = collection(db, 'saas_audit_logs');
+      } else {
+        // Condo-specific logs
+        auditLogsRef = collection(db, 'condos', targetCondoId, 'auditLogs');
+      }
+
       const logRef = doc(auditLogsRef);
-      const logData: AuditLog = {
+      const logData = {
         id: logRef.id,
-        condoId: targetCondoId,
+        condoId: targetCondoId || 'global',
         userId: user.id,
         userName: user.name,
         action,
@@ -10139,6 +11257,31 @@ export default function App() {
               onSendEmail={sendEmail}
               onSendWhatsApp={sendWhatsApp}
             />
+          )
+        ) : detectedCondo ? (
+          (detectedCondo.landingPageEnabled === false) ? (
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 bg-gradient-to-br from-blue-50 to-white">
+              <div className="text-center space-y-6">
+                {detectedCondo.logo ? (
+                  <img src={detectedCondo.logo} alt="Logo" className="w-24 h-24 rounded-3xl shadow-xl mx-auto mb-8 object-cover" />
+                ) : (
+                  <div className="bg-primary w-24 h-24 rounded-[2rem] flex items-center justify-center text-white shadow-2xl mx-auto mb-8">
+                    <Building2 className="w-12 h-12" />
+                  </div>
+                )}
+                <h1 className="text-3xl font-black text-slate-800 tracking-tight">{detectedCondo.name}</h1>
+                <p className="text-slate-500 font-medium max-w-xs mx-auto">Acesse o portal do morador para gerenciar sua unidade.</p>
+                <button 
+                  onClick={() => setShowLoginModal(true)}
+                  className="w-full max-w-sm px-10 py-5 bg-primary text-white rounded-[2rem] font-black shadow-2xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all text-lg flex items-center justify-center gap-3"
+                >
+                  Entrar no Portal <ArrowRight className="w-5 h-5" />
+                </button>
+                <p className="text-[10px] text-slate-300 font-black uppercase tracking-[0.3em] pt-8">Powered by CondoPro</p>
+              </div>
+            </div>
+          ) : (
+            <CondoPortal condo={detectedCondo} onShowLoginModal={() => setShowLoginModal(true)} />
           )
         ) : (
           <LandingPage onLogin={handleLogin} onShowLoginModal={() => setShowLoginModal(true)} plans={dynamicPlans} appSettings={appSettings} />

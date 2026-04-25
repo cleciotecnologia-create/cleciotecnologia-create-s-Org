@@ -1,10 +1,11 @@
-export type UserRole = 'SUPER_ADMIN' | 'CONDO_ADMIN' | 'RESIDENT';
+export type UserRole = 'SUPER_ADMIN' | 'CONDO_ADMIN' | 'SUB_SYNDIC' | 'RESIDENT' | 'JANITOR' | 'CONCIERGE' | 'SECURITY';
 
 export interface User {
   id: string;
   email: string;
   name: string;
   cpf?: string;
+  phone?: string;
   login?: string;
   role: UserRole;
   condoId?: string;
@@ -25,7 +26,17 @@ export interface Condo {
   subscriptionStatus: 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'TRIAL';
   trialEndsAt?: string;
   adminId: string;
+  actingAdminId?: string; // ID of the Sub-Syndic if acting as Syndic
+  isSyndicAbsent?: boolean;
   createdAt: string;
+  customDomain?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  logo?: string;
+  heroImage?: string;
+  description?: string;
+  welcomeMessage?: string;
+  landingPageEnabled?: boolean;
 }
 
 export interface Payment {
@@ -75,9 +86,15 @@ export interface Reservation {
   id: string;
   condoId: string;
   residentId: string;
+  residentName?: string;
+  areaId: string;
   areaName: string;
   date: string;
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELED';
+  startTime: string;
+  endTime: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'CANCELED' | 'CANCELLED' | 'CONFIRMED';
+  denialReason?: string;
+  createdAt: string;
 }
 
 export interface Visitor {
@@ -117,7 +134,7 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
-  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'INVOICE' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG' | 'COMPLAINT' | 'OTHER';
+  resourceType: 'RESIDENT' | 'CONDO' | 'PAYMENT' | 'INVOICE' | 'OCCURRENCE' | 'VISITOR' | 'ASSEMBLY' | 'MAINTENANCE' | 'MOVING' | 'PARKING' | 'TAG' | 'COMPLAINT' | 'CONDO_SETTINGS' | 'OTHER';
   resourceId?: string;
   details?: string;
   timestamp: string;
@@ -321,6 +338,12 @@ export interface CashFlowEntry {
   date: string;
   type: 'INCOME' | 'EXPENSE';
   category: 'FIXED' | 'VARIABLE';
+  status?: 'PENDING_AUTHORIZATION' | 'APPROVED' | 'REJECTED';
+  requestedBy?: string;
+  requestedByName?: string;
+  authorizedBy?: string;
+  authorizedByName?: string;
+  rejectionReason?: string;
   createdAt: string;
 }
 
